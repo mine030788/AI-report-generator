@@ -1,0 +1,42 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+.eggs/
+build/
+dist/
+
+# Virtual env
+venv/
+.venv/
+env/
+.env
+.env.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# 测试 / 临时文件
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+*.log
+
+# 本项目运行产物
+lrg_uploads/
+lrg_outputs/
+out/
+*.zip
+!assets/**/*.zip
+
+# 字体源 zip (太大)
+assets/fonts/*.zip

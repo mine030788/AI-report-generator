@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "luogu-report-generator"
+version = "1.0.0"
+description = "洛谷刷题数据 AI 报告生成器 (读取 luogu-toolkit 打出的 ZIP, 生成结构化 HTML/PDF 报告)"
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [{ name = "luoguAI" }]
+license = { text = "MIT" }
+dependencies = [
+    "openai>=1.30.0",
+    "jinja2>=3.1.0",
+    "matplotlib>=3.7.0",
+    "markdown>=3.5.0",
+    "reportlab>=4.0.0",
+    "playwright>=1.40.0",
+    "flask>=3.0.0",
+    "Pillow>=10.0.0",
+]
+
+[project.scripts]
+luogu-report = "luogu_report_generator.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["luogu_report_generator*"]
+
+[tool.setuptools.package-data]
+luogu_report_generator = ["*.py"]

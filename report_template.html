@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>洛谷 AI 学习测评报告</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @page {
+            size: A4;
+            margin: 20mm 15mm 20mm 15mm;
+            @bottom-right {
+                content: "Page " counter(page);
+                font-size: 10px;
+                color: #6b7280;
+            }
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
+            color: #333;
+            line-height: 1.6;
+        }
+        .page-break {
+            page-break-before: always;
+        }
+        .cover-page {
+            height: 250mm;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 1.5rem;
+            font-size: 0.9rem;
+            border: 1px solid #e5e7eb;
+        }
+        th, td {
+            border: 1px solid #e5e7eb;
+            padding: 10px 12px;
+            text-align: left;
+            vertical-align: top;
+        }
+        th {
+            background-color: #f8fafc;
+            font-weight: 600;
+            color: #1e293b;
+        }
+        tr:nth-child(even) {
+            background-color: #f8fafc;
+        }
+        .markdown-content h1 {
+            font-size: 1.5rem;
+            font-weight: 700;
+            margin-top: 2rem;
+            margin-bottom: 1rem;
+            color: #1e3a8a;
+            border-bottom: 2px solid #e5e7eb;
+            padding-bottom: 0.5rem;
+        }
+        .markdown-content h2 {
+            font-size: 1.25rem;
+            font-weight: 600;
+            margin-top: 1.5rem;
+            margin-bottom: 0.75rem;
+            color: #1e40af;
+        }
+        .markdown-content h3 {
+            font-size: 1.1rem;
+            font-weight: 600;
+            margin-top: 1.25rem;
+            margin-bottom: 0.5rem;
+            color: #1d4ed8;
+        }
+        .markdown-content p {
+            margin-bottom: 1rem;
+        }
+        .markdown-content ul {
+            list-style-type: disc;
+            padding-left: 1.5rem;
+            margin-bottom: 1rem;
+        }
+        .markdown-content pre {
+            background-color: #f3f4f6;
+            padding: 1rem;
+            border-radius: 0.375rem;
+            overflow-x: auto;
+            margin-bottom: 1rem;
+            font-size: 0.85rem;
+        }
+        .markdown-content code {
+            font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+            background-color: #f3f4f6;
+            padding: 0.1rem 0.3rem;
+            border-radius: 0.25rem;
+            font-size: 0.9em;
+        }
+        .markdown-content pre code {
+            background-color: transparent;
+            padding: 0;
+        }
+        .markdown-content .text-blue-700 {
+            color: #1d4ed8;
+        }
+        .markdown-content .font-semibold {
+            font-weight: 600;
+        }
+        .markdown-content p.text-blue-700.font-semibold {
+            background-color: #eff6ff;
+            border-left: 4px solid #3b82f6;
+            padding: 0.75rem 1rem;
+            margin: 1.5rem 0;
+            border-radius: 0 0.375rem 0.375rem 0;
+        }
+    </style>
+</head>
+<body class="bg-white">
+    {% set df = detail_fetch_overview | default({
+        "status_label": "未抓取详情",
+        "status_bg": "#E5E7EB",
+        "status_fg": "#374151",
+        "source_code_success": 0,
+        "summary_only": 0,
+        "detail_skipped": 0,
+        "pure_error_records": 0,
+        "blocker_reason": "无"
+    }) %}
+
+    <!-- 封面页 -->
+    <div class="cover-page text-center">
+        <h1 class="text-4xl font-bold text-blue-900 mb-4">洛谷 AI 学习测评报告</h1>
+        <h2 class="text-xl text-gray-600 mb-12">Coach Edition · 图表化诊断 / 教练反馈 / 训练规划</h2>
+        
+        <div class="bg-blue-50 border border-blue-200 rounded-lg p-8 w-3/4 max-w-lg shadow-sm mb-12 text-left">
+            <h3 class="text-lg font-bold text-blue-800 border-b border-blue-200 pb-2 mb-4">测评基础信息</h3>
+            <div class="grid grid-cols-2 gap-4 text-gray-700">
+                <div><span class="font-semibold">选手姓名：</span>{{ export_data.student_info.name }}</div>
+                <div><span class="font-semibold">测评时间：</span>{{ export_data.student_info.eval_time }}</div>
+                <div><span class="font-semibold">所属学校：</span>{{ export_data.student_info.school }}</div>
+                <div><span class="font-semibold">当前年级：</span>{{ export_data.student_info.grade_zh or export_data.student_info.grade }}</div>
+            </div>
+        </div>
+
+        <div class="grid grid-cols-4 gap-4 w-full px-12 mb-8">
+            <div class="bg-gray-50 border border-gray-200 rounded p-4 text-center">
+                <div class="text-sm text-gray-500 mb-1">已通过题数</div>
+                <div class="text-2xl font-bold text-gray-800">{{ export_data.solved_count }}</div>
+            </div>
+            <div class="bg-gray-50 border border-gray-200 rounded p-4 text-center">
+                <div class="text-sm text-gray-500 mb-1">未通过题数</div>
+                <div class="text-2xl font-bold text-gray-800">{{ export_data.failed_count }}</div>
+            </div>
+            <div class="bg-gray-50 border border-gray-200 rounded p-4 text-center">
+                <div class="text-sm text-gray-500 mb-1">平均难度</div>
+                <div class="flex flex-col items-center gap-2">
+                    <span class="px-3 py-1 rounded-full text-sm font-bold" style="background: {{ avg_difficulty_color }}; color: {{ avg_difficulty_text_color }};">{{ avg_difficulty_label }}</span>
+                    <div class="text-xl font-bold text-gray-800">{{ avg_difficulty }}</div>
+                </div>
+            </div>
+            <div class="bg-gray-50 border border-gray-200 rounded p-4 text-center">
+                <div class="text-sm text-gray-500 mb-1">高频标签</div>
+                <div class="text-lg font-bold text-gray-800 mt-1">{{ top_tag }}</div>
+            </div>
+        </div>
+
+        <div class="bg-white border border-gray-200 rounded-lg p-5 w-full max-w-6xl shadow-sm">
+            <div class="flex items-center justify-between mb-4">
+                <h3 class="text-base font-bold text-gray-800">提交详情抓取概览</h3>
+                <span class="px-3 py-1 rounded-full text-sm font-bold" style="background: {{ df.status_bg }}; color: {{ df.status_fg }};">{{ df.status_label }}</span>
+            </div>
+            <div class="grid grid-cols-4 gap-4 text-center">
+                <div class="bg-green-50 border border-green-200 rounded p-3">
+                    <div class="text-xs text-green-700 mb-1">源码详情成功</div>
+                    <div class="text-xl font-bold text-green-800">{{ df.source_code_success }}</div>
+                </div>
+                <div class="bg-blue-50 border border-blue-200 rounded p-3">
+                    <div class="text-xs text-blue-700 mb-1">摘要保底</div>
+                    <div class="text-xl font-bold text-blue-800">{{ df.summary_only }}</div>
+                </div>
+                <div class="bg-amber-50 border border-amber-200 rounded p-3">
+                    <div class="text-xs text-amber-700 mb-1">阻断后跳过</div>
+                    <div class="text-xl font-bold text-amber-800">{{ df.detail_skipped }}</div>
+                </div>
+                <div class="bg-red-50 border border-red-200 rounded p-3">
+                    <div class="text-xs text-red-700 mb-1">纯错误记录</div>
+                    <div class="text-xl font-bold text-red-800">{{ df.pure_error_records }}</div>
+                </div>
+            </div>
+            <div class="mt-4 text-sm text-gray-600 text-left">
+                <span class="font-semibold">阻断原因：</span>{{ df.blocker_reason }}
+            </div>
+        </div>
+    </div>
+
+    <!-- 目录页 -->
+    <div class="page-break">
+        <h1 class="text-2xl font-bold text-blue-900 mb-6 border-b pb-2">报告目录</h1>
+        <ul class="space-y-4 text-lg text-gray-700 ml-4">
+            <li>1. 核心数据概览与图表化分析</li>
+            <li>2. 综合能力雷达表与诊断</li>
+            <li>3. 考纲精准定级与知识点盲区</li>
+            <li>4. 风险诊断与训练闭环表</li>
+            <li>5. 代码质量与工程习惯</li>
+            <li>6. 定制训练题单</li>
+            <li>7. 错题单页题解与复盘（含 AI 题解摘要与推荐同类题）</li>
+        </ul>
+    </div>
+
+    <!-- 图表分析页 -->
+    <div class="page-break">
+        <h1 class="text-2xl font-bold text-blue-900 mb-6 border-b pb-2">1. 核心数据概览与图表化分析</h1>
+        <div class="grid grid-cols-2 gap-8 mb-8">
+            {% if chart_paths.radar %}
+            <div class="text-center">
+                <img src="{{ chart_paths.radar }}" class="mx-auto" style="max-height: 250px;" alt="能力雷达图">
+                <p class="text-sm text-gray-500 mt-2">图 1：能力雷达图</p>
+            </div>
+            {% endif %}
+            {% if chart_paths.personality_radar %}
+            <div class="text-center">
+                <img src="{{ chart_paths.personality_radar }}" class="mx-auto" style="max-height: 250px;" alt="性格画像雷达图">
+                <p class="text-sm text-gray-500 mt-2">图 2：性格画像雷达图</p>
+            </div>
+            {% endif %}
+            {% if chart_paths.difficulty %}
+            <div class="text-center">
+                <img src="{{ chart_paths.difficulty }}" class="mx-auto" style="max-height: 250px;" alt="题目难度分布">
+                <p class="text-sm text-gray-500 mt-2">图 3：题目难度分布</p>
+            </div>
+            {% endif %}
+            {% if chart_paths.ac_submit_distribution %}
+            <div class="text-center">
+                <img src="{{ chart_paths.ac_submit_distribution }}" class="mx-auto" style="max-height: 250px;" alt="AC 提交次数分布">
+                <p class="text-sm text-gray-500 mt-2">图 4：首次 AC 提交次数分布</p>
+            </div>
+            {% endif %}
+            {% if chart_paths.status %}
+            <div class="text-center">
+                <img src="{{ chart_paths.status }}" class="mx-auto" style="max-height: 250px;" alt="通过/未通过占比">
+                <p class="text-sm text-gray-500 mt-2">图 5：通过/未通过占比</p>
+            </div>
+            {% endif %}
+            {% if chart_paths.tags %}
+            <div class="text-center">
+                <img src="{{ chart_paths.tags }}" class="mx-auto" style="max-height: 250px;" alt="高频算法标签 Top 8">
+                <p class="text-sm text-gray-500 mt-2">图 6：高频算法标签 Top 8</p>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- AI 报告正文 -->
+    <div class="page-break markdown-content">
+        {{ report_html | safe }}
+    </div>
+
+</body>
+</html>
