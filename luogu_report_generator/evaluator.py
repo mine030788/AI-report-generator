@@ -1155,33 +1155,18 @@ def build_trusted_data_summary_md(export_data: dict) -> str:
         "AC = 实际通过的题目数（去重）；『空白』档使用灰色警示色，提示该知识点未接触。"
     )
 
-    # 知识树图谱（纯文本：完全照搬 oi.aijiangti.cn 原版 report.html 的展示形式）
-    # 关键修复（v3.9.50）：原版用纯文本列表把所有知识点平铺出来，按"分类+主题"分行，
-    # 完全不截断。SVG 树在果子多时必然被裁切，现改为纯文本。
-    # 注：python-markdown 默认不解析 <div> 内的 markdown 语法，所以直接用 <h2>
+    # 知识树图谱（SVG：完全照搬 oi.aijiangti.cn 原版 report.html 的展示形式）
+    # 关键修复（v3.9.51）：原版用 SVG 树，所有知识点一视同仁平铺展示。
+    # v3.9.50 之前用 MAX_FRUITS=6 截断会被 "+N" 截掉分支末端，违反用户"不截断"
+    # 要求。改用 _build_one_tree_svg 的 auto-scale 模式：计算每棵最长的分支
+    # 果子数 → 反比缩放果子半径、间距、字号、树干粗细，让所有知识点
+    # 都能塞进 460 宽的容器，绝不截断，绝不"+N"。
     lines.append("")
     lines.append('<div style="page-break-before:always;margin-top:24px;">')
     lines.append('<h2 style="font-size:1.45rem;font-weight:700;color:#065F46;border-bottom:3px solid #10B981;padding-bottom:8px;margin:18px 0 12px 0;">🌳 知识树图谱（按算法标签 · 掌握度可视化）</h2>')
     lines.append("")
-    lines.append('<p style="color:#6B7280;font-size:14px;margin:6px 0 14px 0;">下表按 4 个竞赛级别（CSP-J / CSP-S / 省选 / NOI）展开<b>所有考纲知识点</b>，每行一个知识点，格式为 <code style="background:#F3F4F6;padding:1px 5px;border-radius:3px;">[分类][主题] · AC [N] · [掌握度] · 难度[未知][N或主题名]</code>。首行前会拼上算法分类名（如"动态规划"、"基础实现"）。<b>所有知识点一视同仁平铺展示，不截断、不隐藏</b>，放不下就换行——一目了然看清自己 4 个等级下到底掌握了多少、空白多少。</p>')
-    lines.append(build_knowledge_tree_text(syllabus_eval))
-    lines.append('</div>')
-
-
-    # ------------------------------------------------------------------
-    # 知识点明细（4 个级别各一张表）
-    # 来源：format_syllabus_report() —— 之前只用来 prompt 喂给 AI,
-    # 现在直接把 4 张明细表追加到程序生成的可信数据块末尾,
-    # 让最终报告里能看到每个考纲知识点的 AC 题数 + 掌握等级.
-    # ------------------------------------------------------------------
-    lines.append("")
-    lines.append('<div style="page-break-before:always;margin-top:24px;">')
-    lines.append('<h2 style="font-size:1.45rem;font-weight:700;color:#065F46;border-bottom:3px solid #10B981;padding-bottom:8px;margin:18px 0 12px 0;">📊 知识点明细（按 4 个级别展开）</h2>')
-    lines.append("")
-    lines.append('<p style="color:#6B7280;font-size:14px;margin:6px 0 14px 0;">下面按 CSP-J / CSP-S / 省选 / NOI 4 个级别, <b>逐个知识点</b>列出 AC 题数与掌握等级. 这是上方 4 行汇总表 + 知识树图谱的<b>明细底表</b>: 汇总表告诉你"覆盖了几个 / 多少项空白", 知识树告诉你"哪个分支弱", 这张表告诉你"具体哪个知识点弱, AC 多少题".</p>')
-    # 注意: 整段在 <div> 内, python-markdown 默认不会解析 div 内的 markdown.
-    # 必须在 append 之前先 md.markdown() 转一次 HTML, 表格/标题才会被渲染.
-    lines.append(md.markdown(format_syllabus_report(syllabus_eval), extensions=["tables", "fenced_code"]))
+    lines.append('<p style="color:#6B7280;font-size:14px;margin:6px 0 14px 0;">下面按 4 个竞赛级别（CSP-J / CSP-S / 省选 / NOI）分别画 4 棵"知识树"（<b>2×2 网格</b>）。每棵树上 <b>主干</b> = 竞赛级别，<b>分支</b> = 算法分类，<b>果子</b> = 知识点。果子半径 + 颜色（绿色深浅）= 掌握度（精通=大且近黑，空白=小且灰）。<b>所有知识点一视同仁展示，绝不截断</b>——某分支果子过多时，树会自动等比例缩小，确保全部展示。</p>')
+    lines.append(build_knowledge_tree_html(syllabus_eval))
     lines.append('</div>')
     return "\n".join(lines)
 
@@ -1255,13 +1240,36 @@ def _build_one_tree_svg(
             'padding:30px 0;font-size:12px;">（该级别暂无知识点数据）</div>'
         )
 
-    # 布局常量（v3.6 紧凑化：BRANCH_H 88→56, FRUIT_W 56→38）
-    HEADER_H = 24          # 顶部留白（给树冠+最顶部分类帽留余地）
-    BRANCH_H = 56          # 每条主分支占的高度（紧凑 36%，让树更矮）
+    # === 自动等比例缩放（关键修复 v3.9.51） ===
+    # 找到所有分支中果子最多的那一支 → 反比缩放整个树
+    # 这样即使某分支有 8 / 10 / 12 个果子，也全部塞得下，绝不截断
+    max_fruits = max((len(topics) for _, topics in cat_topics), default=0)
+    if max_fruits <= 0:
+        return (
+            '<div style="color:#9CA3AF;text-align:center;'
+            'padding:30px 0;font-size:12px;">（该级别暂无知识点）</div>'
+        )
+
+    # 基础参数（果子 ≤ BASE_FRUITS 时用 1.0 缩放）
+    BASE_FRUITS = 5          # <=5 果用 1.0 缩放
+    MIN_SCALE = 0.40         # 缩放下限（果子小到 r=3 仍可见）
+    raw_scale = BASE_FRUITS / max(max_fruits, 1)
+    scale = max(MIN_SCALE, raw_scale)
+
+    # 布局常量（按 scale 缩放，让任何分支都塞得下所有果子）
+    HEADER_H = 24            # 顶部留白
+    # 果子小时 BRANCH_H 要增加，给两行标签（5+ 字知识点）留足垂直空间
+    BRANCH_H = int(60 * (0.85 + 0.30 * scale))  # scale=1.0→69, scale=0.4→76
     BOTTOM_PAD = 22
-    MAX_FRUITS = 6         # 每条分支最多挂几个果子（超出的写"+N"）
-    FRUIT_W = 38           # 果子之间的水平间距（紧凑 32%）
-    SIDE_MARGIN = 18       # 边距（略减）
+    FRUIT_W = max(16, int(42 * scale))   # 果子间距（最小 16px）
+    SIDE_MARGIN = 16
+    # 果子半径缩放
+    R_SCALE = scale
+    # 标签字号缩放
+    LABEL_FS_BASE = 8.5
+    LABEL_FS = max(6, LABEL_FS_BASE * (0.7 + 0.3 * scale))
+    # 树干粗细缩放
+    TRUNK_W = max(8, int(18 * scale))
 
     n_branches = len(cat_topics)
     height = HEADER_H + n_branches * BRANCH_H + BOTTOM_PAD
@@ -1308,7 +1316,7 @@ def _build_one_tree_svg(
             f'y2="{ground_y + 5}" stroke="#86EFAC" stroke-width="1.2"/>'
         )
 
-    # 树干（外深 → 中棕 → 内高光，三层叠加出立体感）
+    # 树干（外深 → 中棕 → 内高光，三层叠加出立体感；按 scale 缩放）
     trunk_path = (
         f'M {trunk_x} {trunk_bottom} '
         f'C {trunk_x + 1.5} {(trunk_top + trunk_bottom) * 0.7} '
@@ -1316,15 +1324,15 @@ def _build_one_tree_svg(
         f'{trunk_x} {trunk_top}'
     )
     svg.append(
-        f'<path d="{trunk_path}" stroke="#3F2410" stroke-width="18" '
+        f'<path d="{trunk_path}" stroke="#3F2410" stroke-width="{TRUNK_W}" '
         f'fill="none" stroke-linecap="round"/>'
     )
     svg.append(
-        f'<path d="{trunk_path}" stroke="#6B4423" stroke-width="13" '
+        f'<path d="{trunk_path}" stroke="#6B4423" stroke-width="{int(TRUNK_W * 0.72)}" '
         f'fill="none" stroke-linecap="round"/>'
     )
     svg.append(
-        f'<path d="{trunk_path}" stroke="#A07A50" stroke-width="6" '
+        f'<path d="{trunk_path}" stroke="#A07A50" stroke-width="{int(TRUNK_W * 0.33)}" '
         f'fill="none" stroke-linecap="round" opacity="0.55"/>'
     )
 
@@ -1350,27 +1358,23 @@ def _build_one_tree_svg(
         by = trunk_top + 7 + (i + 0.5) * (branch_zone / n_branches)
         # 方向：奇偶交替（i=0 → 右，i=1 → 左，i=2 → 右，…）
         going_right = (i % 2 == 0)
-        # 长度因子：i=0（最上）最短，i=n-1（最下）最长；形成下宽上窄的圆锥
-        if n_branches > 1:
-            length_factor = 0.62 + 0.38 * i / (n_branches - 1)
-        else:
-            length_factor = 1.0
+        # 长度因子已移除：v3.9.51 让所有分支尽量长，确保不截断
 
-        # 限长 + 按 AC 降序
-        topics_sorted = sorted(topics, key=lambda t: -t[1])[:MAX_FRUITS]
-        hidden = len(topics) - len(topics_sorted)
+        # 不截断：所有知识点全部展示（v3.9.51 关键修复）
+        # 之前是 sorted(topics, key=lambda t: -t[1])[:MAX_FRUITS] + "+N" 截断
+        topics_sorted = sorted(topics, key=lambda t: -t[1])
         n_fruits = len(topics_sorted)
         if n_fruits == 0:
             continue
 
-        # 计算本侧最大可用水平距离（按 length_factor 缩放）
-        max_extent = half_w * length_factor
+        # 计算本侧最大可用水平距离（不缩：v3.9.51 让分支尽量长以容纳更多果子）
+        max_extent = half_w
 
-        # 果子间距（如果太长则压缩，最小 38px）
+        # 果子间距（如果太长则继续压缩，最小 14px——只要能塞下就不截断）
         if n_fruits > 1:
             ideal_span = (n_fruits - 1) * FRUIT_W
-            if ideal_span > max_extent - 30:
-                fw = max(38, (max_extent - 30) / (n_fruits - 1))
+            if ideal_span > max_extent - 24:
+                fw = max(14, (max_extent - 24) / (n_fruits - 1))
             else:
                 fw = FRUIT_W
         else:
@@ -1460,12 +1464,10 @@ def _build_one_tree_svg(
             else:
                 fx = first_fruit_x - j * fw
             fy = by - 2
-            # 颜色规则（最终统一）：**果子颜色按"掌握度"用绿色深浅表示**——
-            #   精通=深绿近黑 / 熟练=深绿 / 入门=标准绿 / 初窥=浅绿 / 空白=白
-            # 难度信息不再在果子颜色里展示（避免与掌握度维度重复），
-            # 改在 hover 提示（full_info）和图例的文字说明里展示。
+            # 颜色规则：果子颜色按"掌握度"用绿色深浅表示
             mt = _MASTERY_VIS.get(level, _MASTERY_VIS["空白"])
-            r = mt["r"]
+            # 关键修复 v3.9.51：果子半径按 scale 缩放
+            r = max(3, mt["r"] * R_SCALE)
             mc = _MASTERY_COLOR.get(level, _MASTERY_COLOR["空白"])
             fill = mc["fill"]
             fg = mc["fg"]
@@ -1479,13 +1481,13 @@ def _build_one_tree_svg(
             svg.append(
                 f'<line x1="{fx}" y1="{fy + r}" '
                 f'x2="{fx}" y2="{fy + r + 4}" '
-                f'stroke="#5C3A1E" stroke-width="1.5"/>'
+                f'stroke="#5C3A1E" stroke-width="1.2"/>'
             )
             # 果子本体（带 <title> 鼠标悬停看完整信息）
             svg.append(
                 f'<circle cx="{fx}" cy="{fy}" r="{r}" '
                 f'fill="{fill}" stroke="{bd}" '
-                f'stroke-width="1.4">'
+                f'stroke-width="1.2">'
                 f'<title>{full_info}</title>'
                 f'</circle>'
             )
@@ -1497,43 +1499,30 @@ def _build_one_tree_svg(
                 f'ry="{r * 0.22:.2f}" '
                 f'fill="#FFFFFF" opacity="0.5"/>'
             )
-            # 果子内写 AC 数（半径 >= 11 才写，避免溢出）
-            if r >= 11:
+            # 果子内写 AC 数（半径 >= 8 才写，按 scale 缩放字号）
+            if r >= 8:
+                fs_inner = max(6, mt["fs"] * R_SCALE)
                 svg.append(
-                    f'<text x="{fx}" y="{fy + 4}" font-size="{mt["fs"]}" '
+                    f'<text x="{fx}" y="{fy + max(3, fs_inner * 0.35)}" '
+                    f'font-size="{fs_inner:.1f}" '
                     f'font-weight="{mt["fw"]}" fill="{fg}" '
                     f'text-anchor="middle">{ac}</text>'
                 )
-            # 果子下写知识点名
-            # 规则：<=4 字直接显示；5+ 字拆两行
+            # 果子下写知识点名（<=4 字直接显示；5+ 字拆两行；字号按 LABEL_FS 缩放）
             topic_chars = list(topic)
             n = len(topic_chars)
             if n <= 4:
-                lines = ["".join(topic_chars)]
+                lines_lbl = ["".join(topic_chars)]
             else:
                 mid = (n + 1) // 2
-                lines = ["".join(topic_chars[:mid]), "".join(topic_chars[mid:])]
-            label_y_start = fy + r + 12
-            for li, line in enumerate(lines):
+                lines_lbl = ["".join(topic_chars[:mid]), "".join(topic_chars[mid:])]
+            label_y_start = fy + r + max(8, int(12 * R_SCALE))
+            for li, line in enumerate(lines_lbl):
                 svg.append(
-                    f'<text x="{fx}" y="{label_y_start + li * 10}" '
-                    f'font-size="8.5" font-weight="600" fill="#1F2937" '
+                    f'<text x="{fx}" y="{label_y_start + li * max(8, int(10 * R_SCALE))}" '
+                    f'font-size="{LABEL_FS:.1f}" font-weight="600" fill="#1F2937" '
                     f'text-anchor="middle">{line}</text>'
                 )
-
-        # 被截掉的 "+N"（分别锚定到分支末端外侧）
-        if hidden > 0:
-            if going_right:
-                overflow_x = branch_end_x + 4
-                anchor = "start"
-            else:
-                overflow_x = branch_end_x - 4
-                anchor = "end"
-            svg.append(
-                f'<text x="{overflow_x}" y="{by + 3}" font-size="10" '
-                f'fill="#9CA3AF" font-style="italic" '
-                f'text-anchor="{anchor}">+{hidden}</text>'
-            )
 
     svg.append('</svg>')
     return '\n'.join(svg)
