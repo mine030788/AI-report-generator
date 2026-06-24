@@ -552,6 +552,28 @@ def format_syllabus_report(evaluation: dict[str, Any]) -> str:
     lines.append("**口径说明**: 本节只根据题目的算法标签评估知识点覆盖，不直接等同于做过某级别来源题。题目级别经历请以下方程序统计表为准。")
     lines.append("")
     lines.append("评级标准: 🟢 精通(20+) | 🟡 熟练(10-19) | 🟠 入门(3-9) | 🔵 初窥(1-2) | 🔴 空白(0)")
+
+
+def _ac_to_level(ac: int) -> str:
+    """从 AC 题数推掌握度等级（与 evaluator._level_for_ac 阈值一致）。
+
+    用于在 detail 缺 'level' 字段时兜底，避免 KeyError。
+    """
+    if ac >= 20:
+        return "精通"
+    if ac >= 10:
+        return "熟练"
+    if ac >= 3:
+        return "入门"
+    if ac >= 1:
+        return "初窥"
+    return "空白"
+
+
+def format_syllabus_report(evaluation: dict[str, Any]) -> str:
+    """把 syllabus_evaluation dict 格式化成 markdown 报告。"""
+    lines: list[str] = []
+    lines.append("## 知识点覆盖评估")
     lines.append("")
 
     overall = evaluation.get("overall", {})
@@ -566,7 +588,10 @@ def format_syllabus_report(evaluation: dict[str, Any]) -> str:
         lines.append("| 知识点 | AC题数 | 掌握等级 |")
         lines.append("|--------|--------|----------|")
         for item in data.get("details", []):
-            lines.append(f"| {item['topic']} | {item['ac_count']} | {item['level']} |")
+            # 兜底：如果没给 level，从 ac_count 推
+            ac = int(item.get("ac_count", 0) or 0)
+            level = item.get("level") or _ac_to_level(ac)
+            lines.append(f"| {item.get('topic', '')} | {ac} | {level} |")
         lines.append("")
 
     _format_group("入门级 CSP-J", evaluation.get("csp_j", {}))
