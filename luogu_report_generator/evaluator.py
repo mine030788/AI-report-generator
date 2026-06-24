@@ -1781,6 +1781,17 @@ def _build_prompt(export_data: dict) -> str:
         f" (uid={student.get('luogu_uid', '?')})"
     )
 
+    # v3.8 增强: 学籍档案 / 政策匹配 (当前 bundle schema 未提供, 默认空)
+    profile_block = (export_data.get("profile_block") or "").strip()
+    policy_block = (export_data.get("policy_block") or "").strip()
+    if not profile_block and isinstance(export_data.get("self_register"), dict):
+        sr = export_data["self_register"]
+        lines = []
+        for k, v in sr.items():
+            if v:
+                lines.append(f"- {k}: {v}")
+        profile_block = "\n".join(lines)
+
     prompt = f"""
 你是一位顶级的算法竞赛金牌教练。我导出了一位选手的近期洛谷做题记录（包括已通过和尝试但未通过的题目代码）。
 请你根据我提供的【能力评估参考框架】以及【官方考纲】，对他进行深度的诊断，并针对他【未做完/做错的题目】给出极具启发性的题解。
@@ -1800,9 +1811,9 @@ def _build_prompt(export_data: dict) -> str:
 {policy_block or "（无政策匹配数据）"}
 
 ### 选手的全局数据统计
-- 本次导出中已通过题数: {solved_count}
-- 本次导出中未通过/卡住题数: {failed_count}
-- 卡题数（定义：同一道题提交>=3次且最终未AC）: {len((behavior_data or {}).get('stuck_problems', [])) if isinstance(behavior_data, dict) else 0}
+- 本次导出中已通过题数: {solved}
+- 本次导出中未通过/卡住题数: {failed}
+- 卡题数（定义：同一道题提交>=3次且最终未AC）: {len((behavior or {}).get('stuck_problems', []) or []) if isinstance(behavior, dict) else 0}
 - 难度分布直方图: {json.dumps(summary.get('difficulty_histogram'))}
 - 偏好的算法标签: {json.dumps(summary.get('top_algorithm_tags') or summary.get('top_tags'))}
 

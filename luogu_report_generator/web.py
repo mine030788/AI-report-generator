@@ -392,7 +392,8 @@ footer { text-align: center; color: var(--text-light); font-size: 12px; margin-t
   </div>
 
   <footer>
-    Powered by luogu-report-generator · 数据源: luogu-toolkit (GitHub)
+    Powered by luogu-report-generator · 数据源: luogu-toolkit (GitHub) ·
+    <a href="https://t.me/+Q4h6R9iM5F80NDEy" target="_blank" rel="noopener" style="color: var(--primary); text-decoration: none;">Telegram 群</a>
   </footer>
 </div>
 

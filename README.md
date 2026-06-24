@@ -192,6 +192,11 @@ luogu-report-generator/
 └─ README.md
 ```
 
+## 社区 & 交流
+
+- Telegram 群: <https://t.me/+Q4h6R9iM5F80NDEy>
+- 项目 A: [luogu-toolkit](https://github.com/mine030788/luogu-SRC-tool)
+
 ## 许可
 
 MIT
