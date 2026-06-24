@@ -1117,16 +1117,19 @@ def build_trusted_data_summary_md(export_data: dict) -> str:
 
 
     # ------------------------------------------------------------------
-    # 鐭ヨ瘑鐐规槑缁嗭紙4 涓骇鍒悇涓€寮犺〃锛?    # 鏉ユ簮锛歠ormat_syllabus_report() 鈥斺€?涔嬪墠鍙敤浣?prompt 鍠傜粰 AI,
-    # 鐜板湪鐩存帴鎶?4 寮犳槑缁嗚〃杩藉姞鍒扮▼搴忕敓鎴愮殑鍙俊鏁版嵁鍧楁湯灏?
-    # 璁╂渶缁堟姤鍛婇噷鑳界湅鍒版瘡涓€冪翰鐭ヨ瘑鐐圭殑 AC 棰樻暟 + 鎺屾彙绛夌骇.
+    # 知识点明细（4 个级别各一张表）
+    # 来源：format_syllabus_report() —— 之前只用来 prompt 喂给 AI,
+    # 现在直接把 4 张明细表追加到程序生成的可信数据块末尾,
+    # 让最终报告里能看到每个考纲知识点的 AC 题数 + 掌握等级.
     # ------------------------------------------------------------------
     lines.append("")
     lines.append('<div style="page-break-before:always;margin-top:24px;">')
-    lines.append('<h2 style="font-size:1.45rem;font-weight:700;color:#065F46;border-bottom:3px solid #10B981;padding-bottom:8px;margin:18px 0 12px 0;">馃搵 鐭ヨ瘑鐐规槑缁嗭紙鎸?4 涓骇鍒睍寮€锛?/h2>')
+    lines.append('<h2 style="font-size:1.45rem;font-weight:700;color:#065F46;border-bottom:3px solid #10B981;padding-bottom:8px;margin:18px 0 12px 0;">📊 知识点明细（按 4 个级别展开）</h2>')
     lines.append("")
-    lines.append('<p style="color:#6B7280;font-size:14px;margin:6px 0 14px 0;">涓嬮潰鎸?CSP-J / CSP-S / 鐪侀€?/ NOI 4 涓骇鍒? <b>閫愪釜鐭ヨ瘑鐐?/b>鍒楀嚭 AC 棰樻暟涓庢帉鎻＄瓑绾? 杩欐槸涓婃柟 4 琛屾眹鎬昏〃 + 鐭ヨ瘑鏍戝浘璋辩殑<b>鏄庣粏搴曡〃</b>: 姹囨€昏〃鍛婅瘔浣?瑕嗙洊浜嗗嚑涓?/ 澶氬皯椤圭┖鐧?, 鐭ヨ瘑鏍戝憡璇変綘"鍝釜鍒嗘敮寮?, 杩欏紶琛ㄥ憡璇変綘"鍏蜂綋鍝釜鐭ヨ瘑鐐瑰急, AC 澶氬皯閬撻".</p>')
-    lines.append(format_syllabus_report(syllabus_eval))
+    lines.append('<p style="color:#6B7280;font-size:14px;margin:6px 0 14px 0;">下面按 CSP-J / CSP-S / 省选 / NOI 4 个级别, <b>逐个知识点</b>列出 AC 题数与掌握等级. 这是上方 4 行汇总表 + 知识树图谱的<b>明细底表</b>: 汇总表告诉你"覆盖了几个 / 多少项空白", 知识树告诉你"哪个分支弱", 这张表告诉你"具体哪个知识点弱, AC 多少题".</p>')
+    # 注意: 整段在 <div> 内, python-markdown 默认不会解析 div 内的 markdown.
+    # 必须在 append 之前先 md.markdown() 转一次 HTML, 表格/标题才会被渲染.
+    lines.append(md.markdown(format_syllabus_report(syllabus_eval), extensions=["tables", "fenced_code"]))
     lines.append('</div>')
     return "\n".join(lines)
 
