@@ -1115,6 +1115,19 @@ def build_trusted_data_summary_md(export_data: dict) -> str:
     lines.append(build_knowledge_tree_html(syllabus_eval))
     lines.append('</div>')
 
+
+    # ------------------------------------------------------------------
+    # 鐭ヨ瘑鐐规槑缁嗭紙4 涓骇鍒悇涓€寮犺〃锛?    # 鏉ユ簮锛歠ormat_syllabus_report() 鈥斺€?涔嬪墠鍙敤浣?prompt 鍠傜粰 AI,
+    # 鐜板湪鐩存帴鎶?4 寮犳槑缁嗚〃杩藉姞鍒扮▼搴忕敓鎴愮殑鍙俊鏁版嵁鍧楁湯灏?
+    # 璁╂渶缁堟姤鍛婇噷鑳界湅鍒版瘡涓€冪翰鐭ヨ瘑鐐圭殑 AC 棰樻暟 + 鎺屾彙绛夌骇.
+    # ------------------------------------------------------------------
+    lines.append("")
+    lines.append('<div style="page-break-before:always;margin-top:24px;">')
+    lines.append('<h2 style="font-size:1.45rem;font-weight:700;color:#065F46;border-bottom:3px solid #10B981;padding-bottom:8px;margin:18px 0 12px 0;">馃搵 鐭ヨ瘑鐐规槑缁嗭紙鎸?4 涓骇鍒睍寮€锛?/h2>')
+    lines.append("")
+    lines.append('<p style="color:#6B7280;font-size:14px;margin:6px 0 14px 0;">涓嬮潰鎸?CSP-J / CSP-S / 鐪侀€?/ NOI 4 涓骇鍒? <b>閫愪釜鐭ヨ瘑鐐?/b>鍒楀嚭 AC 棰樻暟涓庢帉鎻＄瓑绾? 杩欐槸涓婃柟 4 琛屾眹鎬昏〃 + 鐭ヨ瘑鏍戝浘璋辩殑<b>鏄庣粏搴曡〃</b>: 姹囨€昏〃鍛婅瘔浣?瑕嗙洊浜嗗嚑涓?/ 澶氬皯椤圭┖鐧?, 鐭ヨ瘑鏍戝憡璇変綘"鍝釜鍒嗘敮寮?, 杩欏紶琛ㄥ憡璇変綘"鍏蜂綋鍝釜鐭ヨ瘑鐐瑰急, AC 澶氬皯閬撻".</p>')
+    lines.append(format_syllabus_report(syllabus_eval))
+    lines.append('</div>')
     return "\n".join(lines)
 
 
@@ -1781,17 +1794,6 @@ def _build_prompt(export_data: dict) -> str:
         f" (uid={student.get('luogu_uid', '?')})"
     )
 
-    # v3.8 增强: 学籍档案 / 政策匹配 (当前 bundle schema 未提供, 默认空)
-    profile_block = (export_data.get("profile_block") or "").strip()
-    policy_block = (export_data.get("policy_block") or "").strip()
-    if not profile_block and isinstance(export_data.get("self_register"), dict):
-        sr = export_data["self_register"]
-        lines = []
-        for k, v in sr.items():
-            if v:
-                lines.append(f"- {k}: {v}")
-        profile_block = "\n".join(lines)
-
     prompt = f"""
 你是一位顶级的算法竞赛金牌教练。我导出了一位选手的近期洛谷做题记录（包括已通过和尝试但未通过的题目代码）。
 请你根据我提供的【能力评估参考框架】以及【官方考纲】，对他进行深度的诊断，并针对他【未做完/做错的题目】给出极具启发性的题解。
@@ -1811,9 +1813,9 @@ def _build_prompt(export_data: dict) -> str:
 {policy_block or "（无政策匹配数据）"}
 
 ### 选手的全局数据统计
-- 本次导出中已通过题数: {solved}
-- 本次导出中未通过/卡住题数: {failed}
-- 卡题数（定义：同一道题提交>=3次且最终未AC）: {len((behavior or {}).get('stuck_problems', []) or []) if isinstance(behavior, dict) else 0}
+- 本次导出中已通过题数: {solved_count}
+- 本次导出中未通过/卡住题数: {failed_count}
+- 卡题数（定义：同一道题提交>=3次且最终未AC）: {len((behavior_data or {}).get('stuck_problems', [])) if isinstance(behavior_data, dict) else 0}
 - 难度分布直方图: {json.dumps(summary.get('difficulty_histogram'))}
 - 偏好的算法标签: {json.dumps(summary.get('top_algorithm_tags') or summary.get('top_tags'))}
 
