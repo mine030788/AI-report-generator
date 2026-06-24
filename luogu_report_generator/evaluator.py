@@ -1735,6 +1735,26 @@ def build_knowledge_tree_html(syllabus_eval: dict) -> str:
         cat_topics = [(c, cat_to_topics[c]) for c in cat_order]
         cat_topics.sort(key=lambda kv: _cat_score(kv[0]), reverse=True)
 
+        # === 关键修复 v3.9.52：单支放不下时拆成多个子分支 ===
+        # 当某个分类（如 NOI 的"其他"）包含 30+ 个知识点时，全部挤到一根
+        # 分支上果子会重叠、标签看不清。改为按 MAX_PER_BRANCH 切片，
+        # "其他" 30 个 → "其他 1/5" 6 个 / "其他 2/5" 6 个 / ... 拆成 5 根分支
+        # 左右交替分布，**确保每个知识点都能看清**。
+        MAX_PER_BRANCH = 6  # 单支最多挂几个果子
+        split_cat_topics: list[tuple[str, list]] = []
+        for cat, topics in cat_topics:
+            if len(topics) <= MAX_PER_BRANCH:
+                split_cat_topics.append((cat, topics))
+            else:
+                # 按 AC 降序切成多片，每片 ≤ MAX_PER_BRANCH
+                sorted_t = sorted(topics, key=lambda t: -t[1])
+                n_chunks = (len(sorted_t) + MAX_PER_BRANCH - 1) // MAX_PER_BRANCH
+                for ci in range(n_chunks):
+                    chunk = sorted_t[ci * MAX_PER_BRANCH : (ci + 1) * MAX_PER_BRANCH]
+                    sub_name = f"{cat} {ci + 1}/{n_chunks}"
+                    split_cat_topics.append((sub_name, chunk))
+        cat_topics = split_cat_topics
+
         svg = _build_one_tree_svg(icon, title, cat_topics)
 
         # 该棵树的统计条
