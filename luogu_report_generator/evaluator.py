@@ -77,6 +77,59 @@ TAG_CHART_PALETTE = [
 ]
 
 
+_DIFF_TIER: dict[int, dict] = {
+    0: dict(name="未知", fill="#9CA3AF", fg="#FFFFFF", bd="#6B7280"),
+    1: dict(name="入门", fill="#F5222D", fg="#FFFFFF", bd="#A8071A"),
+    2: dict(name="普及-", fill="#FA541C", fg="#FFFFFF", bd="#AD3811"),
+    3: dict(name="普及/提高-", fill="#FAAD14", fg="#FFFFFF", bd="#AD8B14"),
+    4: dict(name="提高+/提高", fill="#52C41A", fg="#FFFFFF", bd="#389E0D"),
+    5: dict(name="提高+/省选-", fill="#1890FF", fg="#FFFFFF", bd="#096DD9"),
+    6: dict(name="省选/NOI-", fill="#722ED1", fg="#FFFFFF", bd="#531DAB"),
+    7: dict(name="NOI/NOI+/CTSC", fill="#2F54EB", fg="#FFFFFF", bd="#1D39C4"),
+}
+
+_MASTERY_RULES: list[tuple[str, str]] = [
+    ("精通", "AC ≥ 20 道"),
+    ("熟练", "10 ≤ AC ≤ 19"),
+    ("入门", "3  ≤ AC ≤ 9"),
+    ("初窥", "1  ≤ AC ≤ 2"),
+    ("空白", "AC = 0（警示色：未接触该知识点）"),
+]
+
+_MASTERY_VIS: dict[str, dict] = {
+    "精通": dict(r=18, fs=12, fw=700),
+    "熟练": dict(r=15, fs=11, fw=700),
+    "入门": dict(r=12, fs=11, fw=600),
+    "初窥": dict(r=9,  fs=10, fw=500),
+    "空白": dict(r=7,  fs=9,  fw=400),
+}
+
+_MASTERY_COLOR: dict[str, dict] = {
+    "精通": dict(fill="#14532D", fg="#FFFFFF", bd="#052E16"),  # 深绿近黑
+    "熟练": dict(fill="#166534", fg="#FFFFFF", bd="#14532D"),  # 深绿
+    "入门": dict(fill="#16A34A", fg="#FFFFFF", bd="#166534"),  # 标准绿
+    "初窥": dict(fill="#86EFAC", fg="#064E3B", bd="#4ADE80"),  # 浅绿
+    "空白": dict(fill="#FFFFFF", fg="#6B7280", bd="#9CA3AF"),  # 白底+灰边+灰字
+}
+
+_CATEGORY_KEYWORDS = (
+    ("基础实现", ["模拟", "枚举", "排序", "高精度", "进制", "字符串基础", "递推", "分治", "构造"]),
+    ("搜索/DFS", ["搜索", "dfs", "bfs", "回溯", "剪枝", "递归", "双向搜索", "启发式"]),
+    ("动态规划", ["dp", "动态规划", "背包", "区间dp", "树形dp", "状压", "数位dp", "记忆化", "概率dp"]),
+    ("贪心/二分", ["贪心", "二分", "倍增", "三分", "中位数"]),
+    ("图论", ["图", "最短路", "dijkstra", "floyd", "spfa", "tarjan", "lca", "并查集", "网络流", "二分图", "匹配", "拓扑", "差分约束", "最小生成树", "mst", "基环树", "欧拉"]),
+    ("数据结构", ["线段树", "树状数组", "堆", "单调栈", "单调队列", "平衡树", "st表", "treap", "splay", "红黑树", "字典树", "trie", "树链剖分", "树剖", "树分治", "cdq", "kdtree", "树套树", "跳表", "左偏树"]),
+    ("字符串", ["kmp", "字符串", "hash", "sam", "后缀", "manacher", "ac自动机", "回文", "z函数", "最小表示"]),
+    ("数学/数论", ["数学", "数论", "组合", "计数", "概率", "期望", "博弈", "矩阵", "高斯消元", "线性基", "生成函数", "多项式", "fft", "ntt", "中国剩余", "原根"]),
+    ("计算几何", ["几何", "凸包", "旋转卡壳", "半平面交", "辛普森", "扫描线", "pick"]),
+    ("其他", []),  # 兜底
+)
+
+_TRUSTED_BLOCK_RE = re.compile(
+    r"(?ms)^##\s*数据校准与真实统计\s*\n.*?(?=^##\s*掌握度判定标准|\Z)"
+)
+
+
 def _try_download_lxgw_wenkai(dest_dir: Path) -> str | None:
     auto = os.environ.get("LRG_AUTO_FONT_DOWNLOAD", "").strip().lower() in {"1", "true", "yes", "on"}
     if not auto:
@@ -413,6 +466,183 @@ def build_detail_fetch_overview(detail_fetch_stats: dict | None) -> dict[str, An
     }
 
 
+
+def split_practice_problems(practice) -> tuple[list[pyLuogu.ProblemSummary], list[pyLuogu.ProblemSummary]]:
+    practice_problems = list(getattr(practice, "problems", []) or [])
+    if practice_problems:
+        passed = [p for p in practice_problems if getattr(p, "accepted", False)]
+        failed = [p for p in practice_problems if getattr(p, "submitted", False) and not getattr(p, "accepted", False)]
+        if passed or failed:
+            return passed, failed
+
+    raw = practice.data if isinstance(getattr(practice, "data", None), dict) else None
+    passed: list[pyLuogu.ProblemSummary] = []
+    failed: list[pyLuogu.ProblemSummary] = []
+    passed_ids: set[str] = set()
+
+    for key, target, accepted in (("passed", passed, True), ("submitted", failed, False), ("failed", failed, False)):
+        items = raw.get(key) if isinstance(raw, dict) else None
+        if not isinstance(items, list):
+            continue
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            pid = item.get("pid")
+            if not pid:
+                continue
+            pid = str(pid)
+            if accepted:
+                passed_ids.add(pid)
+            elif pid in passed_ids:
+                continue
+            target.append(
+                pyLuogu.ProblemSummary(
+                    {
+                        "pid": pid,
+                        "title": item.get("title") or item.get("name") or "",
+                        "difficulty": item.get("difficulty"),
+                        "type": item.get("type"),
+                        "submitted": True,
+                        "accepted": accepted,
+                        "tags": item.get("tags") or [],
+                        "totalSubmit": item.get("totalSubmit"),
+                        "totalAccepted": item.get("totalAccepted"),
+                        "flag": item.get("flag"),
+                        "fullScore": item.get("fullScore"),
+                    }
+                )
+            )
+    return passed, failed
+
+
+def collect_record_dicts(items: list[dict]) -> list[dict]:
+    records: list[dict] = []
+    for item in items:
+        record = item.get("record")
+        if isinstance(record, dict) and record.get("submitTime"):
+            records.append(record)
+    return records
+
+
+def describe_behavior_fetch_error(exc: Exception) -> str:
+    if isinstance(exc, AuthenticationError):
+        return "未登录或 Cookies 已失效，无法读取提交记录列表"
+    if isinstance(exc, ForbiddenError):
+        return f"无权访问提交记录列表：{exc}"
+    if isinstance(exc, RequestError):
+        if getattr(exc, "status_code", None) == 429:
+            return "请求提交记录过于频繁，请稍后重试"
+        return f"请求提交记录失败：{exc}"
+    message = str(exc).strip()
+    if message:
+        return message
+    return "未获取到有效提交记录"
+
+
+def enrich_problem_tags(
+    luogu: pyLuogu.luoguAPI,
+    problems: list[pyLuogu.ProblemSummary],
+    *,
+    max_fetch: int | None = None,
+    progress_callback: Callable[[int, int, int], None] | None = None,
+) -> int:
+    """
+    为缺失 tags 的题目按需补全标签。
+    优先使用 practice.problems 自带标签；只有为空时才走 problem_detail 兜底。
+    返回本次成功补全的题目数量。
+
+    progress_callback(fetched, enriched, total_missing) 在每道题处理完后调用，
+    用于向前端实时反馈标签抓取进度；传 None 则不回调。
+    """
+    enriched = 0
+    fetched = 0
+    cache: dict[str, list[int]] = {}
+
+    # 先一次性统计需要补全的题目总数，方便前端显示 "X/Y" 进度
+    missing_indices = [
+        i for i, p in enumerate(problems)
+        if not list(getattr(p, "tags", []) or [])
+    ]
+    total_missing = len(missing_indices)
+    if progress_callback is not None:
+        try:
+            progress_callback(0, 0, total_missing)
+        except Exception:
+            pass
+
+    for idx, problem in enumerate(problems):
+        existing_tags = list(getattr(problem, "tags", []) or [])
+        if existing_tags:
+            continue
+        if max_fetch is not None and fetched >= max_fetch:
+            break
+
+        pid = str(getattr(problem, "pid", "") or "")
+        if not pid:
+            continue
+
+        try:
+            if pid not in cache:
+                fetched += 1
+                detail = luogu.get_problem(pid)
+                problem_detail = getattr(detail, "problem", None)
+                cache[pid] = list(getattr(problem_detail, "tags", []) or [])
+            if cache[pid]:
+                problem.tags = list(cache[pid])
+                enriched += 1
+        except Exception:
+            continue
+
+        if progress_callback is not None:
+            try:
+                progress_callback(fetched, enriched, total_missing)
+            except Exception:
+                pass
+
+    return enriched
+
+
+def fetch_behavior_analysis(luogu: pyLuogu.luoguAPI, uid: int, fallback_items: list[dict] | None = None) -> dict:
+    from behavior_analyzer import analyze_submission_behavior
+
+    raw_records: list[dict] = []
+    last_error = None
+    for page in range(1, 26):
+        try:
+            record_list = luogu.get_record_list(page=page, uid=uid, user=str(uid))
+            page_records = getattr(record_list, "records", None) or getattr(record_list, "data", None) or []
+            normalized_records = [
+                rec.to_json() if hasattr(rec, "to_json") else rec
+                for rec in page_records
+            ]
+        except Exception as e:
+            last_error = describe_behavior_fetch_error(e)
+            break
+
+        if not normalized_records:
+            break
+        raw_records.extend(normalized_records)
+        if len(normalized_records) < 20 or len(raw_records) >= 1000:
+            break
+
+    if raw_records:
+        behavior = analyze_submission_behavior(raw_records)
+        behavior["_source"] = "record_list"
+        if last_error:
+            behavior["_warning"] = last_error
+        return behavior
+
+    fallback_records = collect_record_dicts(fallback_items or [])
+    if fallback_records:
+        behavior = analyze_submission_behavior(fallback_records)
+        behavior["_source"] = "record_detail_fallback"
+        if last_error:
+            behavior["_warning"] = last_error
+        return behavior
+
+    return {"error": last_error or "未获取到有效提交记录"}
+
+
 def _collect_records_from_items(passed_items, failed_items) -> list[dict]:
     out: list[dict] = []
     for item in list(passed_items or []) + list(failed_items or []):
@@ -730,7 +960,10 @@ def build_trusted_data_summary_md(export_data: dict) -> str:
     eval_time = str(student_info.get("eval_time") or "")
     summary = export_data.get("summary", {}) or {}
     difficulty_histogram = summary.get("difficulty_histogram", {}) or {}
+    level_experience = summary.get("level_experience", {}) or {}
     detail_fetch_stats = export_data.get("detail_fetch_stats", {}) or {}
+    syllabus_eval = export_data.get("syllabus_evaluation", {}) or {}
+
     total = 0
     for level in range(1, 8):
         total += int(difficulty_histogram.get(str(level), difficulty_histogram.get(level, 0)))
@@ -738,10 +971,13 @@ def build_trusted_data_summary_md(export_data: dict) -> str:
     lines = [
         "## 数据校准与真实统计",
         f"- 报告生成时间：{eval_time or '未知'}",
+    ]
+    lines.extend([
         "",
         "### 难度分布（程序生成）",
         '<table><thead><tr><th>洛谷难度</th><th>题数</th><th>占比</th><th>分布图</th></tr></thead><tbody>',
-    ]
+    ])
+
     for level in range(1, 8):
         count = int(difficulty_histogram.get(str(level), difficulty_histogram.get(level, 0)))
         name = DIFFICULTY_NAME_MAP[level]
@@ -752,25 +988,643 @@ def build_trusted_data_summary_md(export_data: dict) -> str:
             f'background:{color};color:#fff;font-weight:600;">{name}</span>'
         )
         lines.append(
-            f"<tr><td>{badge}</td><td>{count}</td>"
+            "<tr>"
+            f"<td>{badge}</td>"
+            f"<td>{count}</td>"
             f"<td>{pct:.1f}%</td>"
-            f"<td>{_render_progress_bar(pct, color)} <span style=\"margin-left:8px;\">{pct:.1f}%</span></td></tr>"
+            f"<td>{_render_progress_bar(pct, color)} <span style=\"margin-left:8px;\">{pct:.1f}%</span></td>"
+            "</tr>"
+        )
+    lines.extend([
+        "</tbody></table>",
+    ])
+    lines.extend(
+        [
+            "",
+            "### 知识点覆盖统计表（按算法标签）",
+            '<table><thead><tr><th>级别</th><th>已覆盖/总数</th><th>覆盖率</th><th>掌握度分布</th></tr></thead><tbody>',
+        ]
+    )
+
+    for key, label in (
+        ("csp_j", "入门级（CSP-J）"),
+        ("csp_s", "提高级（CSP-S）"),
+        ("provincial", "省选级"),
+        ("noi", "NOI级"),
+    ):
+        group = syllabus_eval.get(key, {}) or {}
+        stats = group.get("stats", {}) or {}
+        detail_list = group.get("details", []) or []
+        total_topics = int(stats.get("total", 0))
+        covered = total_topics - int(stats.get("空白", 0))
+        coverage = group.get("coverage", 0)
+        # "掌握度分布"列：本意是展示这一级别分组下，**所有**知识点 topic
+        # 按掌握度（精通/熟练/入门/初窥/空白）的分布，颜色用绿色深浅，与知识树果子一致。
+        # 注意：与"已覆盖/总数"列的对应关系是——
+        #   精通 + 熟练 + 入门 + 初窥 = "已覆盖"（AC ≥ 1）
+        #   空白 = "未覆盖"（AC = 0）
+        #   总数 = 上述 5 档合计
+        m1 = m2 = m3 = m4 = m5 = 0
+        for item in detail_list:
+            if not isinstance(item, dict):
+                continue
+            ac = int(item.get("ac_count", 0) or 0)
+            level = _level_for_ac(ac)
+            if level == "精通":
+                m1 += 1
+            elif level == "熟练":
+                m2 += 1
+            elif level == "入门":
+                m3 += 1
+            elif level == "初窥":
+                m4 += 1
+            else:
+                m5 += 1
+
+        def _chip(color: str, n: int, lbl: str, *, fg: str = "#fff", bd: str = "") -> str:
+            border_style = f"border:1px solid {bd};" if bd else ""
+            return (
+                f'<span style="display:inline-block;padding:1px 8px;'
+                f'border-radius:6px;background:{color};color:{fg};'
+                f'{border_style}'
+                f'font-size:11px;font-weight:600;margin-right:4px;">'
+                f'{lbl} {n}项</span>'
+            )
+        details = (
+            _chip("#14532D", m1, "精通")
+            + _chip("#166534", m2, "熟练")
+            + _chip("#16A34A", m3, "入门")
+            + _chip("#86EFAC", m4, "初窥", fg="#064E3B", bd="#4ADE80")
+            + _chip("#FFFFFF", m5, "空白", fg="#6B7280", bd="#9CA3AF")
+        )
+        lines.append(f"<tr><td><strong>{label.split('（')[0].replace('级','')}</strong></td><td>{covered}/{total_topics}</td><td>{coverage}%</td><td>{details}</td></tr>")
+
+    lines.extend(
+        [
+            "</tbody></table>",
+            "",
+            "- 口径说明：",
+            "  - 行 = 级别（入门/提高/省选/NOI），列 = 已覆盖/总数、覆盖率、**掌握度分布**。",
+            "  - **掌握度分布**展示该级别下所有知识点 topic 按掌握度 5 档（精通/熟练/入门/初窥/空白）的分布，颜色用绿色深浅：精通近黑→熟练深绿→入门标准绿→初窥浅绿→空白白。",
+            "  - 与前一列的对应：精通 + 熟练 + 入门 + 初窥 = “已覆盖”（AC ≥ 1）；空白 = “未覆盖”（AC = 0）；5 档合计 = “总数”。",
+            "- 备注：本表只根据题目的算法标签评估知识点覆盖，表示“接触过”，不等于“熟练掌握”。",
+        ]
+    )
+
+    # ------------------------------------------------------------------
+    # 掌握度判定标准小节（独立 H2）
+    # 重要：必须用 H2 而非 H3。normalize_report_markdown 会用
+    # "^## 知识点覆盖统计表（按算法标签）..." 整块吞掉 AI 重复生成的统计表，
+    # "掌握度判定标准"作为同级 H2 不会被吞，会原样保留。
+    # ------------------------------------------------------------------
+    def _legend_chip(c: dict, name: str) -> str:
+        """无数字的纯色块图例（用于判定标准表的"颜色图例"列）。"""
+        border = f"border:1px solid {c.get('bd','')};" if c.get('bd') else ""
+        return (
+            f'<span style="display:inline-block;padding:2px 12px;'
+            f'border-radius:6px;background:{c["fill"]};color:{c["fg"]};'
+            f'{border}font-size:12px;font-weight:600;">{name}</span>'
+        )
+
+    lines.append("")
+    lines.append("## 掌握度判定标准（5 档）")
+    lines.append(
+        '<table><thead><tr>'
+        '<th>掌握度</th><th>判定标准（AC 题目数）</th><th>颜色图例</th>'
+        '</tr></thead><tbody>'
+    )
+    for name, rule in _MASTERY_RULES:
+        chip = _legend_chip(_MASTERY_COLOR[name], name)
+        lines.append(
+            f'<tr><td><strong>{name}</strong></td><td>{rule}</td><td>{chip}</td></tr>'
         )
     lines.append("</tbody></table>")
+    lines.append(
+        "- 口径说明：5 档阈值是『知识点覆盖统计表』中『掌握度分布』列的统一判定标准；"
+        "AC = 实际通过的题目数（去重）；『空白』档使用灰色警示色，提示该知识点未接触。"
+    )
+
+    # 知识树图谱（HTML 块，python-markdown 会原样保留到最终 HTML）
+    # 关键：包一层 page-break + 大标题，让它独占一页、视觉上不会被表格吞掉
+    # 注：python-markdown 默认不解析 <div> 内的 markdown 语法，所以直接用 <h2>
     lines.append("")
-    lines.append("### 源码抓取概况（程序生成）")
-    if detail_fetch_stats:
-        lines.append(
-            f"- 共 {detail_fetch_stats.get('total_items', 0)} 道题,"
-            f" 已抓到源码 {detail_fetch_stats.get('source_code_success', 0)} 道,"
-            f" 仅概要 {detail_fetch_stats.get('summary_only', 0)} 道,"
-            f" 异常 {detail_fetch_stats.get('detail_errors', 0)} 道"
-        )
-        if detail_fetch_stats.get("blocker_reason"):
-            lines.append(f"- 受限原因: {detail_fetch_stats['blocker_reason']}")
-    else:
-        lines.append("- 暂无数据")
+    lines.append('<div style="page-break-before:always;margin-top:24px;">')
+    lines.append('<h2 style="font-size:1.45rem;font-weight:700;color:#065F46;border-bottom:3px solid #10B981;padding-bottom:8px;margin:18px 0 12px 0;">🌳 知识树图谱（按算法标签 · 掌握度可视化）</h2>')
+    lines.append("")
+    lines.append('<p style="color:#6B7280;font-size:14px;margin:6px 0 14px 0;">下图按 4 个竞赛级别（CSP-J / CSP-S / 省选 / NOI）展示所有考纲知识点的掌握度。果子**大小 + 颜色**都按"掌握度"用绿色深浅表示（精通近黑 / 熟练深绿 / 入门绿 / 初窥浅绿 / 空白白）。把鼠标悬停在果子上可查看 AC 题目数、掌握等级与关联题目的难度。</p>')
+    lines.append(build_knowledge_tree_html(syllabus_eval))
+    lines.append('</div>')
+
     return "\n".join(lines)
+
+
+
+def _classify_topic(topic: str) -> str:
+    """把一个知识点名归类到上面的 9 个分类中。"""
+    t = str(topic or "").lower()
+    for cat, kws in _CATEGORY_KEYWORDS:
+        for kw in kws:
+            if kw and kw.lower() in t:
+                return cat
+    return "其他"
+
+
+def _level_for_ac(ac_count: int) -> str:
+    # ⚠️ 阈值与 _MASTERY_RULES 强绑定，修改时务必同步更新二者
+    # （"掌握度判定标准"小节和"知识点覆盖统计表-掌握度分布"列都基于此）。
+    if ac_count >= 20:
+        return "精通"
+    if ac_count >= 10:
+        return "熟练"
+    if ac_count >= 3:
+        return "入门"
+    if ac_count >= 1:
+        return "初窥"
+    return "空白"
+
+
+def _build_one_tree_svg(
+    icon: str,
+    title: str,
+    cat_topics: list,
+    *,
+    width: int = 460,
+) -> str:
+    """把一个竞赛级别画成一棵"真正的树"（SVG：树干 + 树枝 + 果子）。
+
+    Parameters
+    ----------
+    icon : str
+        级别前的 emoji（🌱/🌿/🌳/🏆）
+    title : str
+        级别名（CSP-J 入门 / CSP-S 提高 / 省选级 / NOI 级）
+    cat_topics : list
+        已按"掌握度从高到低"排好序的 [(cat, [(topic, ac, level), ...]), ...]
+        排在最上面的是掌握度最高的分类。
+    width : int
+        SVG 宽度（px）。树高根据分类数自适应。v3.6 缩小到 460（之前 680），
+        配合 2×2 网格让 4 棵树一页并排展示。
+
+    设计
+    ----
+    - 中央树干（SVG 正中，棕色三层叠加 + 顶部 5 簇绿叶）
+    - 主分支从中央向左右两侧**扇形展开**（奇偶交替），避免全在一侧像耙子
+    - 长度因子：上层分支短、下层分支长，整体呈下宽上窄的圆锥轮廓
+    - 树根处一条棕色虚线 + 草尖，模拟"地面"
+    - 每条主分支 = 一个算法分类，Q 二次贝塞尔曲线，弯曲更明显
+    - 分支上点缀几片小绿叶（装饰用）
+    - 分支末端挂一排"果子" = 知识点
+        - 半径 r 越大 → 掌握越好（6px 空白 → 18px 精通）
+        - 颜色越深（灰 → 浅蓝 → 浅绿 → 中绿 → 深绿）→ 掌握越好
+        - 果子中心写 AC 数（半径够大才写，避免溢出）
+        - 果子下方写知识点名（>4 字拆两行）
+    - 分类小帽（深色药丸）挂在分支根处上沿，靠树干一侧
+    - 树干不透明度最低；果子最显眼
+    """
+    if not cat_topics:
+        return (
+            '<div style="color:#9CA3AF;text-align:center;'
+            'padding:30px 0;font-size:12px;">（该级别暂无知识点数据）</div>'
+        )
+
+    # 布局常量（v3.6 紧凑化：BRANCH_H 88→56, FRUIT_W 56→38）
+    HEADER_H = 24          # 顶部留白（给树冠+最顶部分类帽留余地）
+    BRANCH_H = 56          # 每条主分支占的高度（紧凑 36%，让树更矮）
+    BOTTOM_PAD = 22
+    MAX_FRUITS = 6         # 每条分支最多挂几个果子（超出的写"+N"）
+    FRUIT_W = 38           # 果子之间的水平间距（紧凑 32%）
+    SIDE_MARGIN = 18       # 边距（略减）
+
+    n_branches = len(cat_topics)
+    height = HEADER_H + n_branches * BRANCH_H + BOTTOM_PAD
+
+    # 树干几何：居中
+    trunk_x = width // 2
+    ground_y = HEADER_H + 6
+    trunk_top = ground_y + 4
+    trunk_bottom = height - 12
+    half_w = width // 2 - SIDE_MARGIN  # 一侧可用的最大水平距离
+
+    svg: list[str] = []
+    # 用百分比宽度，避免 PDF 渲染时被裁切
+    svg.append(
+        f'<svg viewBox="0 0 {width} {height}" width="100%" height="auto" '
+        f'preserveAspectRatio="xMidYMid meet" '
+        f'xmlns="http://www.w3.org/2000/svg" '
+        f'style="display:block;max-width:100%;margin:0 auto;" '
+        f'font-family="-apple-system, BlinkMacSystemFont, \'PingFang SC\', '
+        f'\'Microsoft YaHei\', sans-serif">'
+    )
+
+    # 背景渐变（淡绿天 → 白）
+    grad_id = f"sky_{title[:3].replace(' ', '')}"
+    svg.append(
+        f'<defs><linearGradient id="{grad_id}" x1="0" y1="0" x2="0" y2="1">'
+        f'<stop offset="0" stop-color="#F0FDF4"/>'
+        f'<stop offset="1" stop-color="#FFFFFF"/>'
+        f'</linearGradient></defs>'
+    )
+    svg.append(
+        f'<rect x="0" y="0" width="{width}" height="{ground_y + 2}" '
+        f'fill="url(#{grad_id})"/>'
+    )
+
+    # 地面（虚线 + 草尖）
+    svg.append(
+        f'<line x1="0" y1="{ground_y}" x2="{width}" y2="{ground_y}" '
+        f'stroke="#A89878" stroke-width="1.5" stroke-dasharray="2 3"/>'
+    )
+    for gx in range(8, width, 22):
+        svg.append(
+            f'<line x1="{gx}" y1="{ground_y}" x2="{gx - 2}" '
+            f'y2="{ground_y + 5}" stroke="#86EFAC" stroke-width="1.2"/>'
+        )
+
+    # 树干（外深 → 中棕 → 内高光，三层叠加出立体感）
+    trunk_path = (
+        f'M {trunk_x} {trunk_bottom} '
+        f'C {trunk_x + 1.5} {(trunk_top + trunk_bottom) * 0.7} '
+        f'{trunk_x - 1.5} {(trunk_top + trunk_bottom) * 0.3} '
+        f'{trunk_x} {trunk_top}'
+    )
+    svg.append(
+        f'<path d="{trunk_path}" stroke="#3F2410" stroke-width="18" '
+        f'fill="none" stroke-linecap="round"/>'
+    )
+    svg.append(
+        f'<path d="{trunk_path}" stroke="#6B4423" stroke-width="13" '
+        f'fill="none" stroke-linecap="round"/>'
+    )
+    svg.append(
+        f'<path d="{trunk_path}" stroke="#A07A50" stroke-width="6" '
+        f'fill="none" stroke-linecap="round" opacity="0.55"/>'
+    )
+
+    # 树冠（一簇小绿叶 + 一颗大果子装饰在树顶，强化"树"的形象）
+    canopy_y = trunk_top - 4
+    for cx, cy, rr in [(trunk_x - 12, canopy_y, 9), (trunk_x + 10, canopy_y - 4, 11),
+                       (trunk_x - 2, canopy_y - 12, 10), (trunk_x + 16, canopy_y + 4, 7),
+                       (trunk_x - 16, canopy_y + 5, 7)]:
+        svg.append(
+            f'<ellipse cx="{cx}" cy="{cy}" rx="{rr}" ry="{rr * 0.75:.2f}" '
+            f'fill="#4ADE80" opacity="0.85"/>'
+        )
+        svg.append(
+            f'<ellipse cx="{cx - rr * 0.3:.2f}" cy="{cy - rr * 0.3:.2f}" '
+            f'rx="{rr * 0.35:.2f}" ry="{rr * 0.2:.2f}" '
+            f'fill="#FFFFFF" opacity="0.45"/>'
+        )
+
+    # 主分支 = 分类；按 cat_topics 顺序（已排好）从下往上画
+    branch_zone = trunk_bottom - trunk_top - 14
+    for i, (cat, topics) in enumerate(cat_topics):
+        # 分支 y：均匀分布（i=0 在最上，越往下 i 越大）
+        by = trunk_top + 7 + (i + 0.5) * (branch_zone / n_branches)
+        # 方向：奇偶交替（i=0 → 右，i=1 → 左，i=2 → 右，…）
+        going_right = (i % 2 == 0)
+        # 长度因子：i=0（最上）最短，i=n-1（最下）最长；形成下宽上窄的圆锥
+        if n_branches > 1:
+            length_factor = 0.62 + 0.38 * i / (n_branches - 1)
+        else:
+            length_factor = 1.0
+
+        # 限长 + 按 AC 降序
+        topics_sorted = sorted(topics, key=lambda t: -t[1])[:MAX_FRUITS]
+        hidden = len(topics) - len(topics_sorted)
+        n_fruits = len(topics_sorted)
+        if n_fruits == 0:
+            continue
+
+        # 计算本侧最大可用水平距离（按 length_factor 缩放）
+        max_extent = half_w * length_factor
+
+        # 果子间距（如果太长则压缩，最小 38px）
+        if n_fruits > 1:
+            ideal_span = (n_fruits - 1) * FRUIT_W
+            if ideal_span > max_extent - 30:
+                fw = max(38, (max_extent - 30) / (n_fruits - 1))
+            else:
+                fw = FRUIT_W
+        else:
+            fw = 0
+
+        if going_right:
+            # 分支起点/终点
+            branch_start_x = trunk_x + 7
+            first_fruit_x = trunk_x + 22
+            last_fruit_x = first_fruit_x + (n_fruits - 1) * fw
+            branch_end_x = last_fruit_x + 12
+            ctrl_x = (branch_start_x + branch_end_x) / 2
+            ctrl_y = by - 22
+            branch_path = (
+                f'M {branch_start_x} {by} '
+                f'Q {ctrl_x} {ctrl_y} {branch_end_x} {by - 1}'
+            )
+            # 分类 chip 锚点（在分支"内侧"，即靠近树干的左侧）
+            chip_x = trunk_x + 14
+        else:
+            # 镜像：分支从树干左侧出发
+            branch_start_x = trunk_x - 7
+            first_fruit_x = trunk_x - 22
+            last_fruit_x = first_fruit_x - (n_fruits - 1) * fw
+            branch_end_x = last_fruit_x - 12
+            ctrl_x = (branch_start_x + branch_end_x) / 2
+            ctrl_y = by - 22
+            branch_path = (
+                f'M {branch_start_x} {by} '
+                f'Q {ctrl_x} {ctrl_y} {branch_end_x} {by - 1}'
+            )
+            # 分类 chip 锚点（在分支"内侧"，即靠近树干的右侧）
+            chip_x = trunk_x - 14
+
+        # 主分支曲线（阴影 + 主色，双层叠加）
+        svg.append(
+            f'<path d="{branch_path}" stroke="#5C3A1E" stroke-width="6" '
+            f'fill="none" stroke-linecap="round"/>'
+        )
+        svg.append(
+            f'<path d="{branch_path}" stroke="#8B7355" stroke-width="3" '
+            f'fill="none" stroke-linecap="round" opacity="0.7"/>'
+        )
+
+        # 分支上的几片小叶子（装饰，给点绿意；只画在分支前段，不挤到果子下面）
+        for lx_frac, lrot in [(0.32, -28), (0.55, 24)]:
+            lx = branch_start_x + (branch_end_x - branch_start_x) * lx_frac
+            ly = by - (5 if lrot > 0 else 7)
+            if going_right:
+                if lx < first_fruit_x - 6 and lx < branch_end_x - 8:
+                    svg.append(
+                        f'<ellipse cx="{lx}" cy="{ly}" rx="4" ry="2" '
+                        f'fill="#4ADE80" opacity="0.75" '
+                        f'transform="rotate({lrot} {lx} {ly})"/>'
+                    )
+            else:
+                if lx > first_fruit_x + 6 and lx > branch_end_x + 8:
+                    svg.append(
+                        f'<ellipse cx="{lx}" cy="{ly}" rx="4" ry="2" '
+                        f'fill="#4ADE80" opacity="0.75" '
+                        f'transform="rotate({-lrot} {lx} {ly})"/>'
+                    )
+
+        # 分类小帽（深色药丸 + 白字，挂在分支根处上沿）
+        # 关键修复：之前 y=by-24 会让 chip 底（y=by-8）和最大果子（r=18, 顶 y=by-20）
+        # 垂直方向 12px 重叠，导致 chip 文字被果子盖住。把 chip 整体上移到 by-34，
+        # 让 chip 底（y=by-18）刚好不超过最大果子顶（y=by-20），不再被遮挡。
+        chip_w = max(40, len(cat) * 9 + 16)
+        if going_right:
+            chip_left = chip_x
+        else:
+            chip_left = chip_x - chip_w
+        svg.append(
+            f'<rect x="{chip_left}" y="{by - 34}" width="{chip_w}" '
+            f'height="16" rx="8" fill="#1F2937" opacity="0.92"/>'
+        )
+        svg.append(
+            f'<text x="{chip_left + chip_w / 2:.1f}" y="{by - 22}" '
+            f'font-size="10" font-weight="700" fill="#FFFFFF" '
+            f'text-anchor="middle">{cat}</text>'
+        )
+
+        # 果子们
+        for j, (topic, ac, level, difficulty) in enumerate(topics_sorted):
+            if going_right:
+                fx = first_fruit_x + j * fw
+            else:
+                fx = first_fruit_x - j * fw
+            fy = by - 2
+            # 颜色规则（最终统一）：**果子颜色按"掌握度"用绿色深浅表示**——
+            #   精通=深绿近黑 / 熟练=深绿 / 入门=标准绿 / 初窥=浅绿 / 空白=白
+            # 难度信息不再在果子颜色里展示（避免与掌握度维度重复），
+            # 改在 hover 提示（full_info）和图例的文字说明里展示。
+            mt = _MASTERY_VIS.get(level, _MASTERY_VIS["空白"])
+            r = mt["r"]
+            mc = _MASTERY_COLOR.get(level, _MASTERY_COLOR["空白"])
+            fill = mc["fill"]
+            fg = mc["fg"]
+            bd = mc["bd"]
+            diff_label = _DIFF_TIER.get(difficulty, _DIFF_TIER[0])["name"]
+            # 完整信息（hover/assistive 显示）：保留难度
+            full_info = (
+                f"{topic} · AC {ac} · {level} · 难度[{diff_label}]"
+            )
+            # 果柄（短竖线，从果子底部到分支）
+            svg.append(
+                f'<line x1="{fx}" y1="{fy + r}" '
+                f'x2="{fx}" y2="{fy + r + 4}" '
+                f'stroke="#5C3A1E" stroke-width="1.5"/>'
+            )
+            # 果子本体（带 <title> 鼠标悬停看完整信息）
+            svg.append(
+                f'<circle cx="{fx}" cy="{fy}" r="{r}" '
+                f'fill="{fill}" stroke="{bd}" '
+                f'stroke-width="1.4">'
+                f'<title>{full_info}</title>'
+                f'</circle>'
+            )
+            # 高光（左上）
+            svg.append(
+                f'<ellipse cx="{fx - r * 0.32:.2f}" '
+                f'cy="{fy - r * 0.4:.2f}" '
+                f'rx="{r * 0.35:.2f}" '
+                f'ry="{r * 0.22:.2f}" '
+                f'fill="#FFFFFF" opacity="0.5"/>'
+            )
+            # 果子内写 AC 数（半径 >= 11 才写，避免溢出）
+            if r >= 11:
+                svg.append(
+                    f'<text x="{fx}" y="{fy + 4}" font-size="{mt["fs"]}" '
+                    f'font-weight="{mt["fw"]}" fill="{fg}" '
+                    f'text-anchor="middle">{ac}</text>'
+                )
+            # 果子下写知识点名
+            # 规则：<=4 字直接显示；5+ 字拆两行
+            topic_chars = list(topic)
+            n = len(topic_chars)
+            if n <= 4:
+                lines = ["".join(topic_chars)]
+            else:
+                mid = (n + 1) // 2
+                lines = ["".join(topic_chars[:mid]), "".join(topic_chars[mid:])]
+            label_y_start = fy + r + 12
+            for li, line in enumerate(lines):
+                svg.append(
+                    f'<text x="{fx}" y="{label_y_start + li * 10}" '
+                    f'font-size="8.5" font-weight="600" fill="#1F2937" '
+                    f'text-anchor="middle">{line}</text>'
+                )
+
+        # 被截掉的 "+N"（分别锚定到分支末端外侧）
+        if hidden > 0:
+            if going_right:
+                overflow_x = branch_end_x + 4
+                anchor = "start"
+            else:
+                overflow_x = branch_end_x - 4
+                anchor = "end"
+            svg.append(
+                f'<text x="{overflow_x}" y="{by + 3}" font-size="10" '
+                f'fill="#9CA3AF" font-style="italic" '
+                f'text-anchor="{anchor}">+{hidden}</text>'
+            )
+
+    svg.append('</svg>')
+    return '\n'.join(svg)
+
+
+def build_knowledge_tree_html(syllabus_eval: dict) -> str:
+    """渲染 4 棵独立的"真·知识树"（SVG：每棵一个竞赛级别）。
+
+    每棵树 = 1 个竞赛级别（CSP-J / CSP-S / 省选 / NOI）：
+        - 棕色树干
+        - 分类作为主分支（带小绿叶装饰）
+        - 知识点作为果子挂枝头
+        - 果子大小 + 颜色（绿深浅） = 掌握度
+        - 鼠标悬停：显示 AC 题目数 / 掌握等级 / 关联题目难度
+
+    返回完整 HTML（含图例、说明、4 棵树）。"
+    """
+    group_keys = (
+        ("csp_j", "CSP-J 入门", "🌱"),
+        ("csp_s", "CSP-S 提高", "🌿"),
+        ("provincial", "省选级", "🌳"),
+        ("noi", "NOI 级", "🏆"),
+    )
+
+    # ---------- 图例 1：大小=掌握度 ----------
+    # 关键修复：图例每个点用掌握度自身的颜色（绿深浅），跟真果子一致。
+    legend_size: list[str] = []
+    for name in ("精通", "熟练", "入门", "初窥", "空白"):
+        mt = _MASTERY_VIS[name]
+        r = mt["r"]
+        col = _MASTERY_COLOR.get(name, _MASTERY_COLOR["空白"])
+        dot_fill = col["fill"]
+        dot_stroke = col["bd"]
+        legend_size.append(
+            f'<span style="display:inline-flex;align-items:center;'
+            f'gap:5px;margin-right:12px;">'
+            f'<svg width="{r * 2 + 4}" height="{r * 2 + 4}" '
+            f'viewBox="-{r + 2} -{r + 2} {r * 2 + 4} {r * 2 + 4}" '
+            f'xmlns="http://www.w3.org/2000/svg">'
+            f'<circle r="{r}" fill="{dot_fill}" stroke="{dot_stroke}" '
+            f'stroke-width="1.2"/>'
+            f'<ellipse cx="{-r * 0.32:.2f}" cy="{-r * 0.4:.2f}" '
+            f'rx="{r * 0.35:.2f}" ry="{r * 0.22:.2f}" '
+            f'fill="#FFFFFF" opacity="0.5"/>'
+            f'</svg>'
+            f'<span style="font-size:11px;color:#1F2937;">{name}</span>'
+            f'</span>'
+        )
+
+    legend = (
+        '<div style="background:#F9FAFB;border:1px solid #E5E7EB;'
+        'border-radius:6px;padding:10px 14px;margin:0 0 14px 0;'
+        'font-size:11px;color:#374151;">'
+        '<div style="display:flex;flex-wrap:wrap;align-items:center;'
+        'gap:6px;">'
+        '<span style="font-weight:700;color:#1F2937;margin-right:6px;">'
+        '� 果子大小 + 颜色 = 掌握度（绿色深浅：精通近黑→熟练深绿→入门标准绿→初窥浅绿→空白白）'
+        '</span>'
+        + ''.join(legend_size)
+        + '</div>'
+        '</div>'
+    )
+
+    # ---------- 4 棵树（v3.6 改为 2×2 网格 · 一页并排 2 棵）----------
+    # 每棵：醒目标题条（级别 + 图标 + 大字号 + 彩色背景 + 边框）
+    tree_blocks: list[str] = []
+    for idx, (key, title, icon) in enumerate(group_keys):
+        group = syllabus_eval.get(key, {}) or {}
+        details = group.get("details", []) or []
+        stats = group.get("stats", {}) or {}
+        coverage = group.get("coverage", 0)
+        total = int(stats.get("total", 0))
+        blank = int(stats.get("空白", 0))
+        lit = total - blank
+
+        # 按分类聚合
+        # tuple 顺序: (topic, ac, level, difficulty)
+        cat_to_topics: dict[str, list[tuple[str, int, str, int]]] = {}
+        cat_order: list[str] = []
+        for item in details:
+            topic = str(item.get("topic", "")).strip()
+            if not topic:
+                continue
+            ac = int(item.get("ac_count", 0) or 0)
+            level = _level_for_ac(ac)
+            difficulty = int(item.get("difficulty", 0) or 0)
+            cat = _classify_topic(topic)
+            if cat not in cat_to_topics:
+                cat_to_topics[cat] = []
+                cat_order.append(cat)
+            cat_to_topics[cat].append((topic, ac, level, difficulty))
+
+        # 排序：分类按"该分类最高 AC 数"降序（强的分类画在树上更高位置）
+        def _cat_score(cat: str) -> int:
+            return max((t[1] for t in cat_to_topics[cat]), default=0)
+
+        cat_topics = [(c, cat_to_topics[c]) for c in cat_order]
+        cat_topics.sort(key=lambda kv: _cat_score(kv[0]), reverse=True)
+
+        svg = _build_one_tree_svg(icon, title, cat_topics)
+
+        # 该棵树的统计条
+        meta = (
+            f'已点亮 <b style="color:#059669;font-weight:700;">{lit}</b>'
+            f' / {total}（{coverage}%）'
+        )
+
+        # v3.6 醒目标题：级别色编码（按竞赛级别从浅到深）
+        # CSP-J 浅绿 / CSP-S 中绿 / 省选 深绿 / NOI 金色
+        level_colors = {
+            "CSP-J 入门": ("#10B981", "#D1FAE5", "#065F46"),   # 浅绿
+            "CSP-S 提高": ("#059669", "#A7F3D0", "#064E3B"),   # 中绿
+            "省选级":     ("#047857", "#6EE7B7", "#022C22"),    # 深绿
+            "NOI 级":     ("#D97706", "#FDE68A", "#78350F"),    # 金色
+        }
+        border_c, bg_c, text_c = level_colors.get(title, ("#10B981", "#F0FDF4", "#065F46"))
+
+        tree_blocks.append(
+            f'<div class="kt-tree-block" style="'
+            f'background:#FFFFFF;border:2px solid {border_c};'
+            f'border-radius:8px;padding:8px 10px;margin:0;">'
+            # 醒目标题条：级别 emoji + 名称 + 统计
+            f'<div style="display:flex;justify-content:space-between;'
+            f'align-items:center;background:{bg_c};border-left:5px solid {border_c};'
+            f'padding:6px 10px;margin:0 0 6px 0;border-radius:4px;">'
+            f'<span style="font-size:16px;font-weight:800;color:{text_c};'
+            f'letter-spacing:0.5px;">{icon} {title} · 知识树</span>'
+            f'<span style="font-size:11px;color:{text_c};font-weight:600;">{meta}</span>'
+            f'</div>'
+            f'{svg}'
+            f'</div>'
+        )
+
+    # v3.6 2×2 网格：前 2 棵一行，后 2 棵一行（每行 2 棵并排）
+    # 在小屏自动降为 1 列
+    return (
+        '<div class="kt-section" style="margin:8px 0 18px 0;">'
+        '<h2 style="font-size:18px;font-weight:700;color:#065F46;'
+        'border-left:5px solid #10B981;padding:6px 0 6px 10px;'
+        'margin:0 0 8px 0;background:#F0FDF4;border-radius:0 6px 6px 0;">'
+        '🌳 知识树图谱（按竞赛级别 · 果子大小/颜色 = 掌握度）</h2>'
+        '<p style="font-size:12px;color:#4B5563;margin:0 0 10px 0;'
+        'line-height:1.6;">下图为按 4 个竞赛级别（CSP-J / CSP-S / 省选 / '
+        'NOI）分别画出的 4 棵"知识树"（<b>2×2 并排</b>，每棵带级别色编码）。'
+        '每棵树上，<b>主干</b>代表该级别，<b>分支</b>代表算法分类（基础实现 / '
+        '搜索 · DFS / 动态规划 / 贪心 · 二分 / 图论 / 数据结构 / 字符串 / '
+        '数学 · 数论 / 计算几何 / 其他），<b>果子</b>就是该分类下的具体知识点。'
+        '<b>果子越大、颜色越深</b> = 该知识点 AC 数越多 = 掌握越好；'
+        '灰色小果子 = 该知识点尚未接触（AC=0）。</p>'
+        + legend
+        # 2×2 网格：grid-template-columns:repeat(2, 1fr)，gap:8px
+        + '<div style="display:grid;grid-template-columns:repeat(2, 1fr);'
+        'gap:10px;align-items:start;'
+        '@media (max-width:768px){grid-template-columns:1fr;}'
+        '">'
+        + ''.join(tree_blocks)
+        + '</div>'
+        + '</div>'
+    )
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -927,87 +1781,140 @@ def _build_prompt(export_data: dict) -> str:
         f" (uid={student.get('luogu_uid', '?')})"
     )
 
-    prompt = f"""你是一位资深的信息学奥赛 (OI/ACM) 教练与代码评审, 擅长对 CSP-J/S / NOIP / NOI 阶段学员的洛谷刷题数据进行深度诊断。
-请基于下方的"客观数据"生成一份结构化的 Markdown 报告, 严格按照"输出框架"中的 7 个章节顺序输出, 不要新增/删除/重排章节。
+    prompt = f"""
+你是一位顶级的算法竞赛金牌教练。我导出了一位选手的近期洛谷做题记录（包括已通过和尝试但未通过的题目代码）。
+请你根据我提供的【能力评估参考框架】以及【官方考纲】，对他进行深度的诊断，并针对他【未做完/做错的题目】给出极具启发性的题解。
 
-# 基本信息
-{student_line}
-报告生成时间: {current_time}
-通过题数: {solved}, 未通过题数: {failed}
-
-# 客观数据
-
-## 难度分布
-{json.dumps(summary.get("difficulty_histogram", {}), ensure_ascii=False)}
-
-## Top 算法标签
-{json.dumps(summary.get("top_algorithm_tags", []) or summary.get("top_tags", []), ensure_ascii=False, indent=2)}
-
-## 提交行为分析摘要
-{behavior_summary}
-
-## 代码风格静态分析
-{code_analysis_summary}
-
-## 通过题源码样本
-{''.join(passed_samples) if passed_samples else "(无源码样本)"}
-
-## 未通过题源码样本
-{''.join(failed_samples) if failed_samples else "(无失败样本)"}
-
-## 大纲知识点对标摘要
-{syllabus_summary}
-
-## 六维评分
-{six_dim_text or "(无六维数据)"}
-
-## 代码考古 (多版 diff)
-{evolution_prompt}
+**报告生成时间**：{current_time}
 
 {DIAGNOSTIC_FRAMEWORK}
 
-# 难度映射
 {difficulty_guide}
 
-# 2025 大纲原文 (供参考)
 {syllabus_context}
 
-# 输出框架 (严格按此 7 个章节, 不要增删)
-# 洛谷 AI 测评报告
+### 选手学籍档案（来自 self_register 表单 · v3.8 增强）
+{profile_block or "（无档案数据，可能未注册或仅游客模式）"}
 
-## 1. 总体诊断
-(2-3 段, 先给一句话总评, 再展开: 当前能力阶段 / 优势 / 风险)
+### 当地升学政策 + 目标学校政策（v3.8 增强）
+{policy_block or "（无政策匹配数据）"}
 
-## 2. 能力块评估表
-(用 markdown 表格, 列: 能力块 / 当前等级 / 证据 / 提升建议, 至少 6 行, 引用上面客观数据)
+### 选手的全局数据统计
+- 本次导出中已通过题数: {solved_count}
+- 本次导出中未通过/卡住题数: {failed_count}
+- 卡题数（定义：同一道题提交>=3次且最终未AC）: {len((behavior_data or {}).get('stuck_problems', [])) if isinstance(behavior_data, dict) else 0}
+- 难度分布直方图: {json.dumps(summary.get('difficulty_histogram'))}
+- 偏好的算法标签: {json.dumps(summary.get('top_algorithm_tags') or summary.get('top_tags'))}
 
-## 3. 知识点覆盖与缺口
-(对比 2025 大纲, 用表格列出 已掌握 / 部分掌握 / 缺失 的知识点)
+### 六维能力评分
+{six_dim_text if six_dim_text else '未计算'}
 
-## 4. 代码风格与习惯观察
-(基于源码样本, 引用具体代码片段, 谈命名 / 缩进 / 模块化 / 调试输出 / 模板代码 等)
+### 提交行为深度分析
+{behavior_summary}
 
-## 5. 错题与未通过题分析
-(逐题或归类, 给出"题面理解 → 赛时模型 → 错因 → 正解性质 → 改进路径"四段式)
+### 大纲知识点对标
+{syllabus_summary}
 
-## 6. 提交行为画像
-(基于行为分析: 坚韧度 / 完美主义 / 冒险精神 / 自律性 / 调试耐心 / 作息规律 6 维)
+{code_analysis_summary}
 
-## 7. 30 天提升路线图
-(分 3 周 + 1 周, 给出具体可执行的学习 / 刷题 / 复盘任务)
+### 选手最近通过的代码样本（用于评估代码习惯）
+{''.join(passed_samples) if passed_samples else '暂无代码'}
 
-### 7.5 提交代码考古
-{evolution_prompt}
+### 选手未做完/尝试失败的题目（重点出题解部分）
+{''.join(failed_samples) if failed_samples else '暂无未通过的题目'}
 
-# 写作要求
-1. 严格基于上面"客观数据"中的事实, 严禁编造题号、得分、源码片段。
-2. 引用具体题目请用题号 (如 P1001) + 标题。
-3. 表格用 markdown 表格语法, 报告会在 HTML 渲染阶段再加工。
-4. 难度名称严格使用上面"难度映射"中的标准名称。
-5. 不要输出 H1 标题 (大标题"洛谷 AI 测评报告"由模板生成); 直接从 H2 开始。
-6. 整体语言简洁、专业、有教练味, 避免空话和套话。
-"""
+请你输出一份结构化的 Markdown 辅导报告，必须包含以下部分。在生成 Markdown 时，请务必使用以下视觉元素增强表现力：
+ - 评分请使用黄色星级，如 ⭐⭐⭐⭐☆ (使用 ⭐ 和 ☆)
+ - 难度名称必须使用洛谷官方口径，如“入门 / 普及- / 普及+/提高 / 提高+/省选- / 省选/NOI-”，严禁写“难度1/难度2”
+ - 不要生成黑白字符图表或黑白直方图；如果需要表达占比或难度，请优先使用 HTML 彩色徽章、彩色表格，或直接引用上方图表结论
+ - 等级前缀符号请使用 🟢精通 | 🟡熟练 | 🟠入门 | 🔵初窥 | 🔴空白
+ - 各处点评或结论段落，请使用 `<p class="text-blue-700 font-semibold">解读：...</p>` 样式包装。
+ - 整个报告尽可能以 Markdown 表格、区块等图表化、直观的形式呈现，少用长篇大论的文字。
+
+ 1. **【选手概览与性格画像】**：
+    基于提交行为数据，提炼选手的性格画像。**必须**用 Markdown 表格输出，表格列固定为：`| 性格维度 | 星级评分 | 拟人化评价 | 数据证据 |`。
+    **必须包含 6 行**（顺序固定，不允许合并或省略任意一行）：
+    1) 坚韧度  2) 完美主义  3) 冒险精神  4) 自律性  5) 调试耐心  6) 作息规律
+    严禁把多行合并成一格（例如把"自律性"和"作息规律"合并为"自律性与规律性"），也严禁用列表/段落代替表格。
+    星级使用 ⭐⭐⭐⭐⭐/⭐⭐⭐⭐☆/⭐⭐⭐☆☆/⭐⭐☆☆☆/⭐☆☆☆☆☆ 五档（与雷达图六个维度的口径一一对应）。
+    每行数据证据栏必须引用具体数字（如提交时段、卡题次数、AC率、重交间隔等），不要写"数据不足"。
+
+ 2. **【提交行为深度分析】**：
+    基于提供的提交行为数据，以表格和重点解读的形式，深入分析用户的提交习惯。必须包含以下子模块：
+    - **死磕题目 TOP (提交次数最多)**：列出提交次数最多的几道题，分析原因。
+     - **首次 AC 情况**：分析首次通过和多次尝试后通过的比例。
+    - **其他显著行为特征**：如单日高强度刷题记录、长耗时题目等。
+    (注意：此部分请用表格展示数据，并在表下附上 `<p class="text-blue-700 font-semibold">特征：...</p>`)
+
+ 3. **【难度分布与水平研判】**：
+    分析选手的难度分布特征，判断其处于哪个阶段（入门/普及/提高/省选）。必须使用洛谷官方难度名称：暂无评定、入门、普及-、普及/提高-、普及+/提高、提高+/省选-、省选/NOI-、NOI/NOI+/CTSC。严禁输出“难度1/难度2/难度3”。
+
+ 4. **【六维能力雷达表与诊断】（评分参考：85-100 优秀 | 65-84 良好 | 40-64 基础 | <40 薄弱）**：
+      输出 Markdown 表格，评估选手在六大维度的状态：`| 能力块 | 评分 | 当前等级 | 数据证据 | 已经具备 |`
+      六大维度：基础算法、数据结构、图论、动态规划、字符串、数学。当前等级请使用前缀符号（如 🟢精通）。
+
+  5. **【考纲精准定级与知识点盲区】**（根据提供的 NOI大纲 2025版）：
+     - **当前对应等级水平**：明确指出该选手目前处于 CSP-J / CSP-S / 省选 / NOI 哪个阶段。
+     - **知识点强弱项**：严格对照考纲中的知识点名词，列出其掌握得最好的 3 个考点，以及最薄弱的 3 个考点（使用 🟢🟡🔴 标注）。
+     - **训练盲区**：指出他在当前等级中"完全没有涉及/刷题数据中缺失"的必考知识点。
+     - **知识点覆盖与树状图**：不要再写知识点覆盖统计表或知识树（这些由程序自动生成，放在"数据校准与真实统计"小节）。你只需要在本节用 1-2 段话点评"哪些大分支（4 大等级）覆盖得好、哪些几乎为零，并给 1-2 条具体训练建议"即可。
+     - **题目级别经历表**：单独说明做过多少道 CSP-S / 省选 / NOI 级别题，按来源标签与难度双证据解释，不要与知识点覆盖混为一谈。
+
+  6. **【风险诊断与训练闭环表】**：
+     输出 Markdown 表格：`| 优先级 | 风险项 | 触发场景 | 比赛症状 | 根因判断 | 训练专题 | 验收标准 |`
+     - 行数至少 5 行，优先级使用 `S/A/B`。
+     - 这个表必须是高度可执行的训练方案。
+
+  7. **【代码质量与工程习惯深度分析】**：基于《源码静态风格分析》及代码样本，提供一份来自资深架构师视角的 Review。分析代码长度、宏定义习惯（如 `#define int long long`）、IO 优化、命名、STL 容器使用情况等。指出 2 个优点和 3 个必须改掉的坏习惯。
+
+  8. **【定制训练题单（6个月路线图）】**：
+     根据上述大纲盲区和薄弱项，定制一份分阶段的训练计划：
+     - 第一阶段（Month 1-2）：巩固基础，补齐短板
+     - 第二阶段（Month 3-4）：数据结构/算法突破
+     - 第三阶段（Month 5-6）：提速与稳定
+     每个阶段包含具体知识点 + 推荐题目（带洛谷题号）。
+
+  9. **【核心建议（优先级排序）】**：
+     列出 5-8 条核心建议，按优先级排序（🔴紧急 / 🟡重要 / 🟢建议）。例如：`🔴 紧急: 补加 ios::sync_with_stdio(false) 防止大数据 TLE`。
+
+  10. **【未通过题目专属题解（从暴力到正解）】**：针对上面列出的"未做完/尝试失败的题目"，逐一出题解。
+    - 绝不能直接给出最优解！
+    - 必须严格遵循**"从暴力到正解的思考过程"**：
+      a) **AI 题解摘要**：一句话点出这道题的核心思路或坑点。
+      b) 暴力思路怎么想？（复杂度是多少，能拿多少部分分？）
+      c) 瓶颈在哪里？（时间卡在哪，空间卡在哪？）
+      d) 关键性质/不变量观察（Key Observation）。
+      e) 最终正解的推导与核心代码结构。
+      f) **推荐同类题**：推荐 1-2 道涉及相同考点或技巧的洛谷题目（标明题号和简要推荐理由）。
+    """
     return prompt
+
+
+
+def _trim_to_safe_boundary(text: str | None) -> str:
+    """把已生成的 partial 文本修剪到最后一个完整行，避免把半句话喂给模型续写。"""
+    if not text:
+        return ""
+    text = text.rstrip()
+    if not text:
+        return ""
+    # 优先尝试切到最后一个 "## " / "### " 之类的二级标题处，作为天然分段点
+    boundary_candidates: list[int] = []
+    for marker in ("\n## ", "\n### ", "\n#### "):
+        idx = text.rfind(marker)
+        if idx > 0:
+            boundary_candidates.append(idx + 1)  # +1 保留换行符
+    # 退化到最后一个换行
+    last_newline = text.rfind("\n")
+    if last_newline > 0:
+        boundary_candidates.append(last_newline + 1)
+    if not boundary_candidates:
+        return text
+    cut = max(boundary_candidates)
+    # 至少要保留 80% 内容，否则保守地只切到最后一个换行
+    if cut < int(len(text) * 0.2):
+        return text
+    return text[:cut].rstrip() + "\n"
 
 
 def _is_retryable_ai_error(exc: Exception) -> bool:
