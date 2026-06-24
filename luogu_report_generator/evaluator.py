@@ -96,6 +96,17 @@ _MASTERY_RULES: list[tuple[str, str]] = [
     ("空白", "AC = 0（警示色：未接触该知识点）"),
 ]
 
+
+def _escape_html(s: str) -> str:
+    """极简 HTML 转义，避免 topic 名称里出现 < > & 时把外层表格/div 弄破。"""
+    return (
+        str(s)
+        .replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+        .replace('"', "&quot;")
+    )
+
 _MASTERY_VIS: dict[str, dict] = {
     "精通": dict(r=18, fs=12, fw=700),
     "熟练": dict(r=15, fs=11, fw=700),
@@ -1025,39 +1036,79 @@ def build_trusted_data_summary_md(export_data: dict) -> str:
         #   空白 = "未覆盖"（AC = 0）
         #   总数 = 上述 5 档合计
         m1 = m2 = m3 = m4 = m5 = 0
+        # 同时按档位收集 topic 名称（用于在徽章下方展开列表，照搬 oi.aijiangti.cn 原版）
+        topics_by_level: dict[str, list[str]] = {
+            "精通": [], "熟练": [], "入门": [], "初窥": [], "空白": [],
+        }
         for item in detail_list:
             if not isinstance(item, dict):
+                continue
+            topic_name = (item.get("topic") or "").strip()
+            if not topic_name:
                 continue
             ac = int(item.get("ac_count", 0) or 0)
             level = _level_for_ac(ac)
             if level == "精通":
                 m1 += 1
+                topics_by_level["精通"].append(topic_name)
             elif level == "熟练":
                 m2 += 1
+                topics_by_level["熟练"].append(topic_name)
             elif level == "入门":
                 m3 += 1
+                topics_by_level["入门"].append(topic_name)
             elif level == "初窥":
                 m4 += 1
+                topics_by_level["初窥"].append(topic_name)
             else:
                 m5 += 1
+                topics_by_level["空白"].append(topic_name)
 
-        def _chip(color: str, n: int, lbl: str, *, fg: str = "#fff", bd: str = "") -> str:
-            border_style = f"border:1px solid {bd};" if bd else ""
-            return (
-                f'<span style="display:inline-block;padding:1px 8px;'
-                f'border-radius:6px;background:{color};color:{fg};'
-                f'{border_style}'
-                f'font-size:11px;font-weight:600;margin-right:4px;">'
-                f'{lbl} {n}项</span>'
+        # 渲染「掌握度分布」单元：5 个并排小列，每列内是
+        #   ① 顶部彩色徽章（精通/熟练/入门/初窥/空白 + 数量）
+        #   ② 该档位下所有 topic 名称列表（顿号分隔）
+        # 整体用 flex 横向铺开；与原版 oi.aijiangti.cn 报告视觉一致
+        def _level_col(level_name: str, n: int, topics: list[str]) -> str:
+            c = _MASTERY_COLOR[level_name]
+            border = f"border:1px solid {c['bd']};" if c.get("bd") else ""
+            chip = (
+                f'<span style="display:block;text-align:center;padding:2px 4px;'
+                f'border-radius:4px;background:{c["fill"]};color:{c["fg"]};'
+                f'{border}font-size:11px;font-weight:700;line-height:1.3;">'
+                f'{level_name} <span style="opacity:0.85;">{n}项</span></span>'
             )
-        details = (
-            _chip("#14532D", m1, "精通")
-            + _chip("#166534", m2, "熟练")
-            + _chip("#16A34A", m3, "入门")
-            + _chip("#86EFAC", m4, "初窥", fg="#064E3B", bd="#4ADE80")
-            + _chip("#FFFFFF", m5, "空白", fg="#6B7280", bd="#9CA3AF")
+            if topics:
+                items_html = "、".join(_escape_html(t) for t in topics)
+                body = (
+                    f'<div style="margin-top:3px;padding:2px 3px;'
+                    f'font-size:9.5px;line-height:1.35;color:#1F2937;'
+                    f'word-break:break-all;">{items_html}</div>'
+                )
+            else:
+                body = (
+                    f'<div style="margin-top:3px;padding:2px 3px;'
+                    f'font-size:9.5px;line-height:1.35;color:#9CA3AF;'
+                    f'font-style:italic;">—</div>'
+                )
+            return f'<div style="flex:1;min-width:0;">{chip}{body}</div>'
+
+        details_cell = (
+            '<div style="display:flex;gap:4px;align-items:flex-start;">'
+            + _level_col("精通", m1, topics_by_level["精通"])
+            + _level_col("熟练", m2, topics_by_level["熟练"])
+            + _level_col("入门", m3, topics_by_level["入门"])
+            + _level_col("初窥", m4, topics_by_level["初窥"])
+            + _level_col("空白", m5, topics_by_level["空白"])
+            + '</div>'
         )
-        lines.append(f"<tr><td><strong>{label.split('（')[0].replace('级','')}</strong></td><td>{covered}/{total_topics}</td><td>{coverage}%</td><td>{details}</td></tr>")
+        lines.append(
+            f"<tr>"
+            f"<td><strong>{label.split('（')[0].replace('级','')}</strong></td>"
+            f"<td>{covered}/{total_topics}</td>"
+            f"<td>{coverage}%</td>"
+            f"<td>{details_cell}</td>"
+            f"</tr>"
+        )
 
     lines.extend(
         [
@@ -1104,15 +1155,16 @@ def build_trusted_data_summary_md(export_data: dict) -> str:
         "AC = 实际通过的题目数（去重）；『空白』档使用灰色警示色，提示该知识点未接触。"
     )
 
-    # 知识树图谱（HTML 块，python-markdown 会原样保留到最终 HTML）
-    # 关键：包一层 page-break + 大标题，让它独占一页、视觉上不会被表格吞掉
+    # 知识树图谱（纯文本：完全照搬 oi.aijiangti.cn 原版 report.html 的展示形式）
+    # 关键修复（v3.9.50）：原版用纯文本列表把所有知识点平铺出来，按"分类+主题"分行，
+    # 完全不截断。SVG 树在果子多时必然被裁切，现改为纯文本。
     # 注：python-markdown 默认不解析 <div> 内的 markdown 语法，所以直接用 <h2>
     lines.append("")
     lines.append('<div style="page-break-before:always;margin-top:24px;">')
     lines.append('<h2 style="font-size:1.45rem;font-weight:700;color:#065F46;border-bottom:3px solid #10B981;padding-bottom:8px;margin:18px 0 12px 0;">🌳 知识树图谱（按算法标签 · 掌握度可视化）</h2>')
     lines.append("")
-    lines.append('<p style="color:#6B7280;font-size:14px;margin:6px 0 14px 0;">下图按 4 个竞赛级别（CSP-J / CSP-S / 省选 / NOI）展示所有考纲知识点的掌握度。果子**大小 + 颜色**都按"掌握度"用绿色深浅表示（精通近黑 / 熟练深绿 / 入门绿 / 初窥浅绿 / 空白白）。把鼠标悬停在果子上可查看 AC 题目数、掌握等级与关联题目的难度。</p>')
-    lines.append(build_knowledge_tree_html(syllabus_eval))
+    lines.append('<p style="color:#6B7280;font-size:14px;margin:6px 0 14px 0;">下表按 4 个竞赛级别（CSP-J / CSP-S / 省选 / NOI）展开<b>所有考纲知识点</b>，每行一个知识点，格式为 <code style="background:#F3F4F6;padding:1px 5px;border-radius:3px;">[分类][主题] · AC [N] · [掌握度] · 难度[未知][N或主题名]</code>。首行前会拼上算法分类名（如"动态规划"、"基础实现"）。<b>所有知识点一视同仁平铺展示，不截断、不隐藏</b>，放不下就换行——一目了然看清自己 4 个等级下到底掌握了多少、空白多少。</p>')
+    lines.append(build_knowledge_tree_text(syllabus_eval))
     lines.append('</div>')
 
 
@@ -1487,6 +1539,119 @@ def _build_one_tree_svg(
     return '\n'.join(svg)
 
 
+def build_knowledge_tree_text(syllabus_eval: dict) -> str:
+    """渲染 4 棵独立的"真·知识树"（**纯文本**：每棵一个竞赛级别）。
+
+    完全照搬 oi.aijiangti.cn 原版 report.html 的展示形式：
+
+        🌱 CSP-J 入门 · 知识树已点亮 **22** / 28（78.6%）
+
+        动态规划DP基础 · AC 55 · 精通 · 难度[未知]55DP基础
+        背包DP · AC 13 · 熟练 · 难度[未知]13背包DP
+        区间DP · AC 1 · 初窥 · 难度[未知]1区间DP
+        基础实现模拟法 · AC 48 · 精通 · 难度[未知]48模拟法
+        ...
+
+    特点
+    ----
+    - **不截断**：所有知识点一视同仁平铺展示，4 个等级总共 ~131 个知识点全部展开
+    - **不截断**：分类多就多换行，不会出现 SVG 那种"超出容器就被裁"的问题
+    - **不截断**：与原版报告 1:1 对齐，AC=0 仍显示"难度[未知]<主题名>"，空白也看得见
+    - 排版：按"分类 max AC 降序 → 分类内 AC 降序"排序，强项在上，弱项在下面
+    - 每个分类首行前拼分类名（如"动态规划DP基础"），后面所有主题不带分类前缀
+    - 末端的"难度[未知]<N><主题名>"是原版"果子标签"的纯文本化：AC>0 时显示 N+主题，AC=0 时只显示主题
+    """
+    group_keys = (
+        ("csp_j", "CSP-J 入门", "🌱"),
+        ("csp_s", "CSP-S 提高", "🌿"),
+        ("provincial", "省选级", "🌳"),
+        ("noi", "NOI 级", "🏆"),
+    )
+
+    # 颜色 CSS：每条知识点按"掌握度"用绿色深浅染色，与原版保持一致的视觉感受
+    # （原版 5 档：精通近黑/熟练深绿/入门标准绿/初窥浅绿/空白白）
+    level_style = {
+        "精通": "color:#064E3B;font-weight:700;",
+        "熟练": "color:#065F46;font-weight:600;",
+        "入门": "color:#047857;font-weight:500;",
+        "初窥": "color:#10B981;font-weight:400;",
+        "空白": "color:#9CA3AF;font-weight:400;",
+    }
+
+    out: list[str] = []
+
+    for key, title, icon in group_keys:
+        group = syllabus_eval.get(key, {}) or {}
+        details = group.get("details", []) or []
+        stats = group.get("stats", {}) or {}
+        coverage = group.get("coverage", 0)
+        total = int(stats.get("total", 0))
+        blank = int(stats.get("空白", 0))
+        lit = total - blank
+
+        # 标题行（与原版一致：emoji + 级别名 + "知识树已点亮" + 数字 + 覆盖率）
+        out.append(
+            f'<h3 style="font-size:1.15rem;font-weight:800;color:#065F46;'
+            f'border-left:4px solid #10B981;padding:6px 0 6px 10px;'
+            f'margin:18px 0 10px 0;background:#F0FDF4;border-radius:0 4px 4px 0;">'
+            f'{icon} {title} · 知识树已点亮 '
+            f'<b style="color:#059669;">{lit}</b> / {total}（{coverage}%）'
+            f'</h3>'
+        )
+
+        if not details:
+            out.append(
+                '<p style="color:#9CA3AF;font-size:13px;margin:4px 0 14px 0;">'
+                '（该级别暂无知识点数据）</p>'
+            )
+            continue
+
+        # 按分类聚合
+        cat_to_topics: dict[str, list[tuple[str, int, str, int]]] = {}
+        for item in details:
+            topic = str(item.get("topic", "")).strip()
+            if not topic:
+                continue
+            ac = int(item.get("ac_count", 0) or 0)
+            level = _level_for_ac(ac)
+            difficulty = int(item.get("difficulty", 0) or 0)
+            cat = _classify_topic(topic)
+            cat_to_topics.setdefault(cat, []).append((topic, ac, level, difficulty))
+
+        # 分类排序：每个分类的"最强 AC 数"降序（强的画在上面）
+        def _cat_max(cat: str) -> int:
+            return max((t[1] for t in cat_to_topics[cat]), default=0)
+
+        ordered_cats = sorted(cat_to_topics.keys(), key=_cat_max, reverse=True)
+
+        # 逐分类展开：每行一个知识点，**绝不截断**
+        for cat in ordered_cats:
+            topics_sorted = sorted(
+                cat_to_topics[cat], key=lambda t: -t[1]
+            )  # 分类内按 AC 降序
+            for i, (topic, ac, level, _diff) in enumerate(topics_sorted):
+                # 第一个主题前拼分类前缀（与原版一致）
+                prefix = cat if i == 0 else ""
+                # 末端的"果子标签"：AC>0 显示"N主题"，AC=0 只显示"主题"
+                marker = f"{ac}{topic}" if ac > 0 else topic
+                # 整行用 <span> 包一层按掌握度染色
+                line_style = level_style.get(level, level_style["空白"])
+                out.append(
+                    f'<div style="font-size:13px;line-height:1.85;'
+                    f'padding:1px 0 1px 8px;border-left:2px solid #E5E7EB;'
+                    f'margin:0;{line_style}">'
+                    f'{prefix}{topic} · AC {ac} · {level} · 难度[未知]{marker}'
+                    f'</div>'
+                )
+
+        # 每个级别之间加一道空行（视觉分隔，HTML 渲染时也会有一点呼吸感）
+        out.append(
+            '<div style="height:10px;"></div>'
+        )
+
+    return "\n".join(out)
+
+
 def build_knowledge_tree_html(syllabus_eval: dict) -> str:
     """渲染 4 棵独立的"真·知识树"（SVG：每棵一个竞赛级别）。
 
@@ -1656,17 +1821,32 @@ def remove_injected_trusted_block(report_md: str) -> str:
 
 
 def normalize_report_markdown(report_md: str, export_data: dict | None = None) -> str:
-    normalized = report_md
+    """拼接 AI 报告与"程序生成的可信数据块"。
+
+    关键不变量（v3.6 照搬 oi.aijiangti.cn 14:07 原版 report.html）:
+    1. 模板 `report_template.html` **已经**渲染了：
+       - 封面页（H1 洛谷 AI 学习测评报告 / 测评基础信息 / 数据卡片 / 抓取统计）
+       - 目录页（1-7 章节）
+       - 第 1 章节 H1 "1. 核心数据概览与图表化分析" + 6 张图表
+       → 所以 markdown 区域（`{{ report_html | safe }}`）第一段是
+         4 个程序生成的 H2（数据校准与真实统计 + 掌握度判定标准 + 2 棵知识树 + 知识点明细），
+         **紧接**AI 报告的 H1 "🏅 OI 竞赛选手深度能力诊断与训练报告" + 7 个 H2 章节。
+    2. AI 报告**必须**从 `# 🏅 OI 竞赛选手深度能力诊断与训练报告` (H1) 开始,
+       紧接 7 个 H2 章节（1.~7.【...】），**不要**写模板已有的 H1 洛谷 AI 学习测评报告，
+       **不要**写程序已生成的可信数据块的任何 H2/H3。
+       所以这里先把 AI 报告里**多余的** `## 数据校准与真实统计` 块**删掉**（H1 保留），
+       然后把 `build_trusted_data_summary_md()` 输出**插到**最前面（4 个 H2），
+       最后接 AI 报告的 H1 + 7 个 H2 章节。
+    """
+    normalized = report_md or ""
+    # 1) 删 AI 报告里**多余的** `## 数据校准与真实统计` 块（程序已生成同名 H2）
     normalized = remove_injected_trusted_block(normalized)
     if export_data is None:
-        return normalized
+        return normalized.lstrip()
     trusted_block = build_trusted_data_summary_md(export_data)
-    heading_match = re.match(r"^(# .+\n+)", normalized)
-    if heading_match:
-        head = heading_match.group(1)
-        tail = normalized[len(head):]
-        return f"{head}{trusted_block}\n\n{tail}"
-    return f"{trusted_block}\n\n{normalized}"
+    # 2) 拼：trusted_block（4 个 H2）在最前，紧接模板的章节 1 H1 + 6 图表，
+    #    AI 报告（H1 + 7 个 H2 章节）紧接 trusted_block 之后
+    return f"{trusted_block}\n\n{normalized.lstrip()}"
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -1715,6 +1895,12 @@ def _build_prompt(export_data: dict) -> str:
     failed = int(export_data.get("failed_count", 0))
     behavior = export_data.get("behavior_analysis", {}) or {}
     six_dim = export_data.get("six_dimension_scores", {}) or {}
+    # B 项目暂未集成 self_register / 政策匹配 / 提交行为分析, 默认空字符串/空字典, 模板会兜底为"（无xxx数据）"
+    profile_block = export_data.get("profile_block", "") or ""
+    policy_block = export_data.get("policy_block", "") or ""
+    behavior_data = behavior
+    solved_count = solved
+    failed_count = failed
 
     passed_samples: list[str] = []
     for it in export_data.get("passed_items", []):
