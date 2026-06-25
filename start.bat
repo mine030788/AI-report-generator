@@ -37,10 +37,12 @@ echo       Done.
 
 REM 3) Kill any process on port 8765
 echo [3/4] Cleaning port 8765 ...
+setlocal enabledelayedexpansion
 set PORT=8765
 for /f "tokens=5" %%a in ('netstat -ano ^| findstr /R "[:][0-9]*:!PORT! "') do (
     taskkill /F /PID %%a >nul 2>&1
 )
+endlocal
 
 REM 4) Start web server
 echo [4/4] Starting web server ...
